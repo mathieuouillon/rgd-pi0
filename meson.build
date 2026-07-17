@@ -93,9 +93,9 @@ endif
 # ROOT's headers are, so it reads it by construction -- and demanding the
 # variable in that case would be demanding the user point it at a directory it
 # cannot miss. That is the JLab farm, where this builds with no environment set.
-if vdt_incdir != root_incdir
-  root_include_path = run_command('printenv', 'ROOT_INCLUDE_PATH', check: false).stdout().strip()
+root_include_path = run_command('printenv', 'ROOT_INCLUDE_PATH', check: false).stdout().strip()
 
+if vdt_incdir != root_incdir
   if not root_include_path.split(':').contains(vdt_incdir)
     error(
       'ROOT_INCLUDE_PATH does not contain "' + vdt_incdir + '".\n' +
