@@ -562,10 +562,16 @@ back `slim_<i>.root` plus a log. The wrapper deliberately does **not** use
 Monitor and retry the usual way:
 
 ```sh
-swif2 status    -workflow rgd_pi0_stageA_LD2_outbending
-swif2 list-jobs -workflow rgd_pi0_stageA_LD2_outbending -display problems
-swif2 retry-jobs -workflow rgd_pi0_stageA_LD2_outbending -problems
+swif2 status     -workflow rgd_pi0_stageA_LD2_outbending
+swif2 diagnose   -workflow rgd_pi0_stageA_LD2_outbending   # why jobs are not progressing
+swif2 show-job   -workflow rgd_pi0_stageA_LD2_outbending -name <job>
+swif2 retry-jobs -workflow rgd_pi0_stageA_LD2_outbending   # resubmit problem jobs
+swif2 cancel     -workflow rgd_pi0_stageA_LD2_outbending -delete
 ```
+
+These are checked against `swif2 -help` on ifarm. There is no `list-jobs` —
+clas-framework's docs name one and it errors with *"is not a valid swif
+command"*; the real listing command is `swif2 list`.
 
 ### Farm: Stage B
 

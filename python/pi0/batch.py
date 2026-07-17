@@ -419,10 +419,15 @@ def main(argv: list[str] | None = None) -> int:
     if r.returncode != 0:
         print(f"error: swif2 script exited {r.returncode}", file=sys.stderr)
         return 1
+    # These are swif2's real command names, checked against `swif2 -help` on
+    # ifarm. There is no `list-jobs` -- clas-framework's docs name one, and it
+    # errors with "is not a valid swif command".
     print(f"\nsubmitted. Monitor with:\n"
-          f"  swif2 status -workflow {cfg.swif2.workflow}\n"
-          f"  swif2 list-jobs -workflow {cfg.swif2.workflow} -display problems\n"
-          f"  swif2 retry-jobs -workflow {cfg.swif2.workflow} -problems")
+          f"  swif2 status      -workflow {cfg.swif2.workflow}\n"
+          f"  swif2 diagnose    -workflow {cfg.swif2.workflow}   # why jobs are not progressing\n"
+          f"  swif2 show-job    -workflow {cfg.swif2.workflow} -name <job>\n"
+          f"  swif2 retry-jobs  -workflow {cfg.swif2.workflow}   # resubmit problem jobs\n"
+          f"  swif2 cancel      -workflow {cfg.swif2.workflow} -delete")
     return 0
 
 
