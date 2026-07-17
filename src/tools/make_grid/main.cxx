@@ -483,15 +483,21 @@ void read_slim(const std::string& path, const pi0::Cuts& cuts, Samples& s, Input
         }
     }
 
-    // Only ask the reader why the loop ended if the READER ended it. When we
-    // broke on the budget, the last Next() succeeded and the status is
-    // kEntryValid -- a perfectly healthy read that this check used to report as
-    // "failed reading ... Check the branch list matches the Stage A schema",
-    // blaming the schema for a file that is fine. It made --max-events unusable
-    // on any file with more events than the budget, which is every file it is
-    // for. The old code guessed kEntryNotFound "on some ROOT versions"; the
-    // guess does not hold on ROOT 6.40, and guessing was never necessary -- we
-    // know who ended the loop.
+    // Only ask the reader why the loop ended if the READER ended it. The status
+    // describes the read that ended the loop; break on the budget and the last
+    // Next() succeeded, so it is kEntryValid -- a healthy read this check used to
+    // report as "failed reading ... Check the branch list matches the Stage A
+    // schema", blaming the schema for a file that is fine. It made --max-events
+    // unusable on any file holding more events than the budget, which is every
+    // file the flag is for. The old form guessed that a clean break "leaves
+    // kEntryNotFound behind on some ROOT versions"; it does not on ROOT 6.40, and
+    // the guess was never needed -- we know who ended the loop.
+    //
+    // kEntryBeyondEnd is the ONLY clean end: per TTreeReader.h it is "last entry
+    // loop has reached its end", while kEntryNotFound is "the tree entry number
+    // does not exist" -- a real failure alongside kEntryChainSetupError and
+    // kEntryDictionaryError. Excusing it here, now that `stopped_on_budget` says
+    // what it was standing in for, would mask the error it names.
     if (!stopped_on_budget && reader.GetEntryStatus() != TTreeReader::kEntryBeyondEnd) {
         // A missing branch shows up as kEntryDictionaryError / kEntryChainSetupError.
         throw std::runtime_error("failed reading \"events\" from " + path +

@@ -491,17 +491,22 @@ void read_pool_pass(const std::string& path, const pi0::Cuts& cuts, pi0::DonorPo
     // missing branch must surface as an error (kEntryDictionaryError /
     // kEntryChainSetupError) rather than as a column of silent zeroes in the pool.
     //
-    // ONLY WHEN THE LOOP RAN TO THE END OF THE TREE. make_grid's copy of this
-    // check tests the status unconditionally, on the stated assumption that a
-    // clean budget break "leaves kEntryNotFound behind on some ROOT versions". It
-    // does not on this one -- it leaves kEntryValid, because the last Next() DID
-    // succeed and we simply chose not to use the entry -- so the unconditional
-    // form throws on a perfectly healthy file the moment --max-events runs out
-    // mid-file. That is a live defect in make_grid (its --max-events path over
-    // multiple inputs) and is not reproduced here. The status only describes the
-    // read that ended the loop, so it is only evidence when the READER ended it.
-    if (!stopped_on_budget && reader.GetEntryStatus() != TTreeReader::kEntryBeyondEnd &&
-        reader.GetEntryStatus() != TTreeReader::kEntryNotFound) {
+    // ONLY WHEN THE LOOP RAN TO THE END OF THE TREE. The status describes the
+    // read that ended the loop, so it is evidence only when the READER ended it.
+    // Break on the budget and the last Next() DID succeed -- the status is
+    // kEntryValid and we simply chose not to use the entry -- so testing it
+    // unconditionally throws on a healthy file the moment --max-events runs out
+    // mid-file. (make_grid's copy had exactly that defect, on the stated
+    // assumption that a clean break "leaves kEntryNotFound behind on some ROOT
+    // versions"; it does not on this one. Fixed there too, the same way.)
+    //
+    // kEntryBeyondEnd is the ONLY clean end: per TTreeReader.h it is "last entry
+    // loop has reached its end", while kEntryNotFound is "the tree entry number
+    // does not exist" -- a real failure sitting alongside kEntryChainSetupError
+    // and kEntryDictionaryError. It was only ever excused here as the guess about
+    // the budget break; `stopped_on_budget` states that directly, so excusing it
+    // as well would mask the error it names.
+    if (!stopped_on_budget && reader.GetEntryStatus() != TTreeReader::kEntryBeyondEnd) {
         throw std::runtime_error("failed reading \"events\" from " + path + " (TTreeReader status " +
                                  std::to_string(static_cast<int>(reader.GetEntryStatus())) +
                                  "). Check the branch list matches the Stage A schema.");
