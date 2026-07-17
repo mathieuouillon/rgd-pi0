@@ -45,6 +45,8 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import OptimizeWarning, curve_fit
 
+from .progress import track
+
 from . import extract, io
 from .config import BsaCuts, Config, load_config
 
@@ -229,7 +231,7 @@ def compute_bsa(
         base.update(kw)
         return BsaResult(bin4d=i, ok=False, reason=reason, **base)
 
-    for i in range(cfg.binning.n_4d):
+    for i in track(range(cfg.binning.n_4d), "bsa fit"):
         by = yields[i]
 
         # --- the dilution correction, and what to do when it is unavailable

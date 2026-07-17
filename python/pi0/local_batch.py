@@ -49,6 +49,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
+from .progress import Progress
 from .farm import (
     FarmConfigError,
     InputFile,
@@ -269,20 +270,16 @@ def main(argv: list[str] | None = None) -> int:
     _install_sigint(procs)
     results: list[Result] = []
     t0 = time.monotonic()
-    done = 0
+    # A live bar on a terminal, a periodic line in a batch log. The old code
+    # wrote a raw "\r ... " every file, which is right on a TTY and unreadable in
+    # a captured log -- exactly the split Progress exists to handle.
+    bar = Progress(f"skim {target}", len(jobs))
     with ThreadPoolExecutor(max_workers=args.concurrent) as ex:
         futs = {ex.submit(_run_one, j, args.exe, cuts, target, args.max_events, procs): j for j in jobs}
         for fut in as_completed(futs):
-            res = fut.result()
-            results.append(res)
-            done += 1
-            nfail = sum(1 for r in results if r.rc != 0)
-            el = time.monotonic() - t0
-            rate = done / el if el > 0 else 0
-            eta = (len(jobs) - done) / rate if rate > 0 else 0
-            print(f"\r  {done}/{len(jobs)}  ok {done - nfail}  failed {nfail}  "
-                  f"{el:6.1f}s elapsed  eta {eta:6.1f}s   ", end="", flush=True)
-    print()
+            results.append(fut.result())
+            bar.add()
+    bar.finish()
 
     results.sort(key=lambda r: r.job.index)
     ok = [r for r in results if r.rc == 0]
