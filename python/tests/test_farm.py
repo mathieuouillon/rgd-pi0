@@ -480,7 +480,10 @@ def test_wrapper_does_not_set_e_so_one_bad_file_does_not_abandon_the_chunk(tmp_p
     w = stagea_wrapper(cfg, ['input_0.hipo','input_1.hipo','input_2.hipo'], "./stageA")
     assert "set -uo pipefail" in w
     assert "set -euo pipefail" not in w
-    assert "exit $rc" in w
+    # run() returns rc; the script exits on PIPESTATUS[0] because the body is
+    # piped through `tee log.txt` and tee's own status is always 0.
+    assert "return $rc" in w
+    assert "exit ${PIPESTATUS[0]}" in w
 
 
 def test_wrapper_explains_exit_3(tmp_path):
@@ -529,7 +532,7 @@ def test_wrapper_propagates_the_skim_exit_code(tmp_path):
     r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
                        env={"PATH": "/usr/bin:/bin"})
     assert r.returncode == 3, "SWIF2 must see the job as failed"
-    assert "allow_rga_fallback" in r.stderr, "exit 3 must explain itself"
+    assert "allow_rga_fallback" in r.stdout, "exit 3 must explain itself"
 
 
 def test_wrapper_missing_staged_input_does_not_pass_silently(tmp_path):
@@ -543,7 +546,7 @@ def test_wrapper_missing_staged_input_does_not_pass_silently(tmp_path):
     r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
                        env={"PATH": "/usr/bin:/bin"})
     assert r.returncode == 4
-    assert "INPUT NOT READABLE" in r.stderr
+    assert "INPUT NOT READABLE" in r.stdout
 
 
 def test_wrapper_one_bad_file_does_not_abandon_the_rest_of_the_chunk(tmp_path):
@@ -725,3 +728,42 @@ def test_partition_and_time_overrides_reach_the_script(tmp_path):
     assert "-partition priority" in s
     assert "-time 3600s" in s
     assert "production" not in s
+
+
+def test_wrapper_creates_log_txt(tmp_path):
+    """THE regression test. swif2_script declares `-output log.txt`, and -output
+    copies a FILE out of the job dir -- it does not capture stdout. Without a tee
+    the file never exists, SWIF2 has nothing to reap, and the job's entire log is
+    lost even though it ran and exited 0. Observed on a real submission."""
+    cfg = load_farm_config(_cfg(tmp_path))
+    job = tmp_path / "jlog"
+    job.mkdir()
+    (job / "input_0.hipo").touch()
+    fake = tmp_path / "stageA_says_things"
+    fake.write_text('#!/usr/bin/env bash\necho "hello from the skim"\nexit 0\n')
+    fake.chmod(0o755)
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, ["input_0.hipo"], str(fake)))
+    r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin"})
+    assert r.returncode == 0
+    log = job / "log.txt"
+    assert log.is_file(), "-output log.txt has nothing to copy without this"
+    assert "hello from the skim" in log.read_text()
+
+
+def test_wrapper_log_txt_captures_a_failure_and_keeps_the_exit_code(tmp_path):
+    """`run | tee` reports tee's status (always 0), so the exit code must come
+    from PIPESTATUS[0] or every failed job would look like a success."""
+    cfg = load_farm_config(_cfg(tmp_path))
+    job = tmp_path / "jlog2"
+    job.mkdir()
+    (job / "input_0.hipo").touch()
+    fake = tmp_path / "stageA_exit3b"
+    fake.write_text('#!/usr/bin/env bash\necho "boom" >&2\nexit 3\n')
+    fake.chmod(0o755)
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, ["input_0.hipo"], str(fake)))
+    r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin"})
+    assert r.returncode == 3, "tee must not swallow the failure"
+    body = (job / "log.txt").read_text()
+    assert "boom" in body and "allow_rga_fallback" in body
