@@ -1,0 +1,322 @@
+"""Submit the RG-D pi0 Stage A skim to the JLab farm via SWIF2.
+
+Usage::
+
+    python -m pi0.batch config/farm/LD2.farm.json               # dry-run
+    python -m pi0.batch config/farm/LD2.farm.json --submit
+
+Dry-run is the default, as in clas-framework. Unlike clas-framework's, this
+dry-run is **side-effect-free apart from the scripts directory**: it writes the
+wrapper scripts and the swif2 script (you asked to see them) and nothing else.
+clas-framework's C++ tool and its Python skim both perform their full snapshot
+copy -- hundreds of MB, clobbering a previous workflow's frozen program dir --
+before ever checking ``--submit``.
+
+The pipeline this drives
+------------------------
+::
+
+    Stage A   one HIPO -> one slim         <- THIS TOOL, fanned out over ~28k jobs
+    make_grid once, over the slims         <- one job, needs the slims
+    Stage B   all slims -> one binned      <- ONE per target, needs ALL of A
+    pi0.*     extraction                   <- local, cheap
+
+Stage B is deliberately not submitted by this tool. It cannot start until every
+Stage A job is done, so there is nothing for a scheduler to overlap, and
+expressing "wait for all of A" as SWIF2 antecedents would mean one job with ~28,000
+of them. Run ``--stage b`` once A is complete; it prints the exact
+``stageB_bin`` command with every slim chained.
+
+The pre-flight
+--------------
+The most valuable thing here happens before a single job is submitted. On RG-D,
+``stageA_skim`` exits 3 for every run in 18305-19131 because no GBT photon model
+covers them, so a production submitted with ``photon.allow_rga_fallback = false``
+is ~28,000 identical failures and a wasted evening. That is checked, named, and
+refused up front.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+from .farm import (
+    FarmConfigError,
+    RunListError,
+    chunk_inputs,
+    config_sha256,
+    discover_inputs,
+    format_swif2_time,
+    load_farm_config,
+    load_runs,
+    stagea_wrapper,
+    swif2_script,
+)
+
+__all__ = ["main"]
+
+
+def _generalise(reason: str) -> str:
+    """Collapse per-file reasons so the tally counts kinds, not runs.
+
+    ``run 18306 is not in the outbending LD2 run list`` and the same for 18307
+    are one fact reported twice, not two facts.
+    """
+    return re.sub(r"\brun \d+\b", "run <N>", reason)
+
+
+def _read_listing(path: Path) -> list[str]:
+    with path.open() as f:
+        return [ln.strip() for ln in f if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def _preflight(cuts_path: Path, n_jobs: int) -> list[str]:
+    """Everything that would make every job fail, checked once instead of N times.
+
+    Returns a list of blocker strings; empty means go.
+    """
+    blockers: list[str] = []
+    if not cuts_path.is_file():
+        return [f"no cut config at {cuts_path}"]
+    with cuts_path.open() as f:
+        cuts = json.load(f)
+
+    photon = cuts.get("photon", {})
+    if not photon.get("allow_rga_fallback", False):
+        blockers.append(
+            "photon.allow_rga_fallback is false, and NO GBT PHOTON MODEL COVERS RG-D.\n"
+            "      The model map stops at run 16772; RG-D is 18305-19131. stageA_skim will exit 3\n"
+            f"      on every one of these {n_jobs} jobs. This is stageA_skim working as designed --\n"
+            "      it refuses rather than scoring RG-D photons with an RG-A inbending model.\n"
+            "      To take the fallback anyway, set photon.allow_rga_fallback = true in\n"
+            "      config/cuts.json. Every output then carries gbt.fallback_used = TRUE and the\n"
+            "      Python stage will refuse to publish from it without --allow-unpublishable.\n"
+            "      Do that only for a study you intend to report as such."
+        )
+    return blockers
+
+
+def _grid_is_placeholder(grid_path: Path) -> bool:
+    if not grid_path.is_file():
+        return True
+    try:
+        with grid_path.open() as f:
+            doc = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return True
+    blob = json.dumps(doc).lower()
+    return "placeholder" in blob
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(
+        prog="pi0.batch",
+        description="Submit the RG-D pi0 Stage A skim to the JLab farm via SWIF2.",
+    )
+    p.add_argument("farm_config", type=Path, help="a farm JSON, e.g. config/farm/LD2.farm.json")
+    p.add_argument("--config", type=Path, default=Path("config"), help="config DIRECTORY (default: config)")
+    p.add_argument("--submit", action="store_true", help="actually run the generated swif2 script (default: dry-run)")
+    p.add_argument("--stage", choices=("a", "b"), default="a", help="which stage to drive (default: a)")
+    p.add_argument("--exe", default="./build/src/stageA_skim/stageA_skim", help="path to stageA_skim ON THE NODE")
+    p.add_argument("--stageb-exe", default="./build/src/stageB_bin/stageB_bin", help="path to stageB_bin")
+    p.add_argument("--scripts-dir", type=Path, default=Path("batch_scripts"),
+                   help="where the wrapper + swif2 scripts are written (default: batch_scripts)")
+    p.add_argument("--files-per-job", type=int, default=None, help="override farm/files_per_job")
+    p.add_argument("--workflow", default=None, help="override farm/swif2/workflow")
+    p.add_argument("--max-jobs", type=int, default=None, help="synthesize at most N jobs (for testing)")
+    p.add_argument("--file-list", type=Path, default=None,
+                   help="read the input file list from this file instead of scanning. Useful on a login "
+                        "node, or to reproduce an old production exactly.")
+    p.add_argument("--slim-dir", type=Path, default=None, help="--stage b: where Stage A's slims landed")
+    p.add_argument("--allow-rga-fallback-production", action="store_true",
+                   help="proceed even though every output will be stamped gbt.fallback_used")
+    args = p.parse_args(argv)
+
+    try:
+        cfg = load_farm_config(args.farm_config)
+        runs = load_runs(args.config)
+    except (FarmConfigError, OSError, json.JSONDecodeError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    if args.workflow:
+        cfg = replace(cfg, swif2=replace(cfg.swif2, workflow=args.workflow))
+    fpj = args.files_per_job or cfg.files_per_job
+    cuts_path = args.config / "cuts.json"
+
+    if args.stage == "b":
+        return _stage_b(args, cfg, cuts_path)
+
+    # ---- discover -------------------------------------------------------
+    listing = _read_listing(args.file_list) if args.file_list else None
+    try:
+        accepted, rejected = discover_inputs(cfg, runs, listing=listing)
+    except (FarmConfigError, RunListError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    print(f"farm config    : {cfg.source}")
+    print(f"target         : {cfg.target}  ({cfg.polarity})")
+    print(f"cuts.json      : {cuts_path}  sha256 {config_sha256(cuts_path)[:16] if cuts_path.is_file() else '(missing)'}")
+    print(f"inputs         : {len(cfg.inputs)} spec(s)")
+    print(f"files accepted : {len(accepted)}")
+    print(f"files rejected : {len(rejected)}")
+
+    if rejected:
+        by_reason: dict[str, int] = {}
+        for r in rejected:
+            by_reason[_generalise(r.reason)] = by_reason.get(_generalise(r.reason), 0) + 1
+        print("\nREJECTED, by reason -- none of this is silent:")
+        for reason, n in sorted(by_reason.items(), key=lambda kv: -kv[1]):
+            print(f"  {n:6d}  {reason}")
+        print("  (the run-list filter is the point: inbending and outbending runs share one")
+        print("   directory tree, and the slim schema does not record polarity, so a scan")
+        print("   without this filter mixes torus polarities and nothing downstream notices.)")
+
+    if not accepted:
+        print("\nerror: no input files survived. Nothing to submit.", file=sys.stderr)
+        return 1
+
+    chunks = chunk_inputs(accepted, fpj)
+    if args.max_jobs:
+        chunks = chunks[: args.max_jobs]
+        print(f"\n--max-jobs {args.max_jobs}: synthesizing {len(chunks)} of the full set. THIS IS A TEST "
+              f"SUBMISSION, not a production.")
+
+    runs_seen = sorted({f.run for f in accepted})
+    print(f"\nruns           : {len(runs_seen)}  ({runs_seen[0]}-{runs_seen[-1]})")
+    print(f"files per job  : {fpj}")
+    print(f"jobs           : {len(chunks)}")
+    print(f"workflow       : {cfg.swif2.workflow}")
+    print(f"resources      : {cfg.swif2.cores} core(s), {cfg.swif2.ram_gb}G ram, "
+          f"{cfg.swif2.disk_gb}G disk, {format_swif2_time(cfg.swif2.time)}")
+    print(f"output         : {cfg.output_dir}/<run>/<job>/slim_<i>.root")
+    print(f"logs           : {cfg.log_dir}/<job>.log")
+
+    # ---- pre-flight -----------------------------------------------------
+    blockers = _preflight(cuts_path, len(chunks))
+    if blockers and not args.allow_rga_fallback_production:
+        # Flush first: the summary above is on stdout and the refusal below is on
+        # stderr, and an unflushed stdout puts the refusal before the numbers that
+        # explain it.
+        sys.stdout.flush()
+        print("\n" + "=" * 76, file=sys.stderr)
+        print("REFUSING TO SUBMIT", file=sys.stderr)
+        print("=" * 76, file=sys.stderr)
+        for b in blockers:
+            print(f"  * {b}", file=sys.stderr)
+        print("\nNothing was submitted. Fix the above, or pass --allow-rga-fallback-production\n"
+              "to submit anyway with the fallback stamped into every output.", file=sys.stderr)
+        return 2
+
+    with cuts_path.open() as f:
+        if json.load(f).get("photon", {}).get("allow_rga_fallback", False):
+            print("\n" + "!" * 76)
+            print("photon.allow_rga_fallback IS TRUE. Every photon in this production will be scored")
+            print("by an RG-A INBENDING PASS-1 model -- data it was not trained on. Every output will")
+            print("carry gbt.fallback_used = TRUE, and the Python stage will refuse to publish from")
+            print("it without --allow-unpublishable. This is a study, not a measurement.")
+            print("!" * 76)
+
+    for g in ("grid_A_q2_xb.json", "grid_B_z_pt2.json"):
+        if _grid_is_placeholder(args.config / "binning" / g):
+            print(f"\nnote: config/binning/{g} is still a PLACEHOLDER. That does not affect Stage A "
+                  f"(which does not bin), but make_grid must run on these slims before Stage B.")
+
+    # ---- synthesize -----------------------------------------------------
+    scripts_dir = args.scripts_dir
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    for ch in chunks:
+        job = f"{cfg.swif2.workflow}_{ch.name_suffix}"
+        (scripts_dir / f"{job}.wrapper.sh").write_text(stagea_wrapper(cfg, len(ch.files), args.exe))
+
+    script = swif2_script(cfg, chunks, scripts_dir=scripts_dir, exe=args.exe, cuts_path=cuts_path)
+    script_path = scripts_dir / f"{cfg.swif2.workflow}.swif2.sh"
+    script_path.write_text(script)
+    script_path.chmod(0o755)
+    print(f"\nwrote {script_path}")
+    print(f"      {len(chunks)} wrapper(s) in {scripts_dir}/")
+
+    if not args.submit:
+        print("\nDRY RUN -- nothing submitted. Inspect the script above, then re-run with --submit.")
+        print("\nsample add-job (job 0):")
+        for line in script.splitlines():
+            if line.startswith("swif2 add-job"):
+                idx = script.splitlines().index(line)
+                print("\n".join("  " + l for l in script.splitlines()[idx : idx + 12]))
+                break
+        return 0
+
+    print(f"\nsubmitting {len(chunks)} jobs ...")
+    r = subprocess.run(["bash", str(script_path)])
+    if r.returncode != 0:
+        print(f"error: swif2 script exited {r.returncode}", file=sys.stderr)
+        return 1
+    print(f"\nsubmitted. Monitor with:\n"
+          f"  swif2 status -workflow {cfg.swif2.workflow}\n"
+          f"  swif2 list-jobs -workflow {cfg.swif2.workflow} -display problems\n"
+          f"  swif2 retry-jobs -workflow {cfg.swif2.workflow} -problems")
+    return 0
+
+
+def _stage_b(args, cfg, cuts_path: Path) -> int:
+    """Print (or run) the single Stage B command that chains every slim.
+
+    Not submitted as a SWIF2 workflow: it is one job, and it needs every Stage A
+    output, so there is nothing to schedule around.
+    """
+    slim_dir = args.slim_dir or Path(cfg.output_dir)
+    if not slim_dir.is_dir():
+        print(f"error: no slim directory at {slim_dir}. Pass --slim-dir, or run --stage a first.",
+              file=sys.stderr)
+        return 1
+    slims = sorted(str(p) for p in Path(slim_dir).rglob("slim_*.root"))
+    if not slims:
+        print(f"error: no slim_*.root under {slim_dir}. Stage A has not produced anything yet.",
+              file=sys.stderr)
+        return 1
+
+    print(f"target      : {cfg.target}")
+    print(f"slims found : {len(slims)}  under {slim_dir}")
+    print(f"\nStage B runs ONCE over all of them, so the donor pool is drawn from the whole target")
+    print(f"rather than one file at a time. stageB_bin validates that every input agrees on target,")
+    print(f"config hash and photon model, and REFUSES a mixed set -- chaining an LD2 slim into an Sn")
+    print(f"run would put Sn photons in LD2's mixed background and quietly corrupt R_A.")
+
+    args_file = Path(args.scripts_dir) / f"stageB_{cfg.target}.inputs.txt"
+    args_file.parent.mkdir(parents=True, exist_ok=True)
+    args_file.write_text("\n".join(slims) + "\n")
+
+    cmd = [args.stageb_exe]
+    for s in slims:
+        cmd += ["--input", s]
+    cmd += ["--output", f"{cfg.output_dir}/binned_{cfg.target}.root",
+            "--config", str(cuts_path),
+            "--grid-a", str(args.config / "binning" / "grid_A_q2_xb.json"),
+            "--grid-b", str(args.config / "binning" / "grid_B_z_pt2.json")]
+
+    print(f"\ninput list written to {args_file} ({len(slims)} paths)")
+    print("\ncommand:")
+    print(f"  {args.stageb_exe} \\")
+    print(f"      $(sed 's/^/--input /' {args_file} | tr '\\n' ' ') \\")
+    print(f"      --output {cfg.output_dir}/binned_{cfg.target}.root \\")
+    print(f"      --config {cuts_path} \\")
+    print(f"      --grid-a {args.config}/binning/grid_A_q2_xb.json \\")
+    print(f"      --grid-b {args.config}/binning/grid_B_z_pt2.json")
+
+    if not args.submit:
+        print("\nDRY RUN -- not executed. Re-run with --submit to run it here.")
+        return 0
+    print(f"\nrunning Stage B over {len(slims)} slims. This is single-threaded by design (a")
+    print("multi-threaded sum of doubles would make sum_q2 depend on the thread count).")
+    return subprocess.run(cmd).returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

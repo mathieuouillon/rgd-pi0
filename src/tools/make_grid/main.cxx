@@ -426,8 +426,15 @@ void read_slim(const std::string& path, const pi0::Cuts& cuts, Samples& s, Input
 
     std::vector<pi0::Photon> photons;
 
+    // Whether WE ended the loop or the reader did. The status check below is
+    // only meaningful in the second case -- see it for why.
+    bool stopped_on_budget = false;
+
     while (reader.Next()) {
-        if (budget == 0) break;
+        if (budget == 0) {
+            stopped_on_budget = true;
+            break;
+        }
         if (budget > 0) --budget;
         ++sum.n_events_read;
 
@@ -476,11 +483,17 @@ void read_slim(const std::string& path, const pi0::Cuts& cuts, Samples& s, Input
         }
     }
 
-    if (reader.GetEntryStatus() != TTreeReader::kEntryBeyondEnd &&
-        reader.GetEntryStatus() != TTreeReader::kEntryNotFound) {
-        // kEntryNotFound is what a clean `budget == 0` break leaves behind on
-        // some ROOT versions; anything else is a real read failure (a missing
-        // branch shows up as kEntryDictionaryError / kEntryChainSetupError).
+    // Only ask the reader why the loop ended if the READER ended it. When we
+    // broke on the budget, the last Next() succeeded and the status is
+    // kEntryValid -- a perfectly healthy read that this check used to report as
+    // "failed reading ... Check the branch list matches the Stage A schema",
+    // blaming the schema for a file that is fine. It made --max-events unusable
+    // on any file with more events than the budget, which is every file it is
+    // for. The old code guessed kEntryNotFound "on some ROOT versions"; the
+    // guess does not hold on ROOT 6.40, and guessing was never necessary -- we
+    // know who ended the loop.
+    if (!stopped_on_budget && reader.GetEntryStatus() != TTreeReader::kEntryBeyondEnd) {
+        // A missing branch shows up as kEntryDictionaryError / kEntryChainSetupError.
         throw std::runtime_error("failed reading \"events\" from " + path +
                                  " (TTreeReader status " + std::to_string(static_cast<int>(reader.GetEntryStatus())) +
                                  "). Check the branch list matches the Stage A schema.");

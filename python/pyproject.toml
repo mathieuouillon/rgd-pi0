@@ -24,6 +24,11 @@ pi0-qa = "pi0.qa:main"
 pi0-ratio = "pi0.ratio:main"
 pi0-broadening = "pi0.broadening:main"
 pi0-bsa = "pi0.bsa:main"
+# pi0.batch and pi0.local_batch depend on nothing outside the standard library,
+# deliberately: you submit from an ifarm login node, where the extraction stage's
+# uproot/numpy/scipy stack has no business being installed.
+pi0-batch = "pi0.batch:main"
+pi0-local-batch = "pi0.local_batch:main"
 
 [tool.setuptools]
 packages = ["pi0"]

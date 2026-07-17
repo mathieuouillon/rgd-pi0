@@ -255,3 +255,43 @@ test(
   args: ['--reporter', 'tap'],
   suite: 'unit',
 )
+
+# ---------------------------------------------------------------------------
+# test_inputchain -- the N slim files of one Stage B run
+# (src/stageB_bin/InputChain.hpp): their canonical order, the cross-checks that
+# must hold across them, and the seed they derive.
+#
+# No config file and no PI0_TEST_TMPDIR, and unlike every other suite here no
+# real input of any kind: a Provenance is an ordered vector of string pairs, so
+# a chain -- including the corrupt ones that must be refused -- is built in
+# code. That is the point of InputChain.hpp taking a ChainInput rather than a
+# TFile. The chains these tests must reject (an LD2 file chained with an Sn one,
+# a truncated skim hidden among full ones) are exactly the chains it would be
+# most expensive to keep real fixtures of.
+#
+# Depends on pi0_core_dep alone, which is the whole dependency: the header
+# includes util/Provenance.hpp and util/Sha256.hpp -- both header-only, both
+# reached through the `src/` include directory that every pi0_*_dep carries --
+# and ROOT, for TFile, which Provenance.hpp needs and pi0_core_dep supplies. It
+# does NOT need pi0_config_dep or pi0_stageB_bin_dep: the header parses no cut
+# and constructs no DonorPool, and the absence on this line is what keeps
+# "deciding which files are one run is separable from reading them" checkable.
+# ---------------------------------------------------------------------------
+test_inputchain_exe = executable(
+  'test_inputchain',
+  sources: files('test_inputchain.cpp'),
+  dependencies: [pi0_core_dep, catch2_dep],
+  install: false,
+  override_options: ['warning_level=3'],
+)
+
+test(
+  'inputchain',
+  test_inputchain_exe,
+  # Sorts and refuses chains of at most three hand-built inputs, and hashes a
+  # handful of 64-character strings. There is nothing here that is not immediate.
+  timeout: 60,
+  protocol: 'tap',
+  args: ['--reporter', 'tap'],
+  suite: 'unit',
+)

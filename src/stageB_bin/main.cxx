@@ -2,9 +2,32 @@
 // stageB_bin -- Stage A slim TTree -> binned m_gg spectra and count-weighted sums.
 //
 // usage:
-//   stageB_bin --input <slim.root> --output <binned.root> --config <cuts.json>
+//   stageB_bin --input <slim.root> [--input <more.root> ...]
+//              --output <binned.root> --config <cuts.json>
 //              --grid-a <grid_A_q2_xb.json> --grid-b <grid_B_z_pt2.json>
-//              [--max-events N]
+//              [--max-events N] [--allow-truncated-inputs]
+//
+// ===========================================================================
+// ONE RUN, MANY INPUTS, ONE POOL -- AND ONE TARGET
+// ===========================================================================
+// --input REPEATS, and the N files are ONE run: one donor pool drawn from all of
+// them, one set of spectra, one output. That is not a convenience. The pool is a
+// reservoir per (Q^2, x_B, multiplicity) bin, and a bin no input populated has NO
+// mixed background rather than a thin one -- one farm slim file fills 33 of the
+// shipped 224 bins, while the RG-D production is ~30,866 slim files for LD2
+// alone. The pool is only well filled if one run sees all of a target's slims.
+//
+// EVERYTHING THAT MAKES THAT SAFE IS IN src/stageB_bin/InputChain.hpp, and it
+// runs BEFORE the first event is read: the chain is put into a canonical order
+// (by CONTENT hash, not by path -- see there), it is refused if the inputs
+// disagree about their target, their cuts, their GBT model, their beam energy or
+// their polarity, and it is refused if any input is a truncated Stage A run.
+// Those are refusals and not warnings for one reason: nothing downstream of the
+// read knows a photon's target -- a donor is four floats -- so an LD2 file
+// chained with an Sn file builds one pool in which Sn photons are the mixed
+// background subtracted from LD2 events. It corrupts the numerator AND the
+// denominator of R_A and it produces entirely ordinary-looking spectra. There is
+// no plot on which it shows up and no later stage that could find it.
 //
 // ===========================================================================
 // WHAT THIS PROGRAM IS FOR. READ THIS BEFORE CHANGING ANY ACCUMULATOR.
@@ -65,12 +88,17 @@
 //   reservoir sampling is a function of the SEQUENCE of offers, so a parallel
 //   pre-pass would make the pool depend on thread scheduling again, which is the
 //   exact defect DonorPool exists to remove.
-// PASS 1 -- RDataFrame over the same file. The pool is frozen and const, so
-//   mixing is a pure per-entry lookup with no state, no locks and no ordering.
+// PASS 1 -- RDataFrame over the same files, in the same canonical order. The pool
+//   is frozen and const, so mixing is a pure per-entry lookup with no state, no
+//   locks and no ordering.
 //
-// Both passes read the same PREFIX of the file under --max-events. They must:
-// a pool built from more events than were binned would be a background estimated
-// from a sample the spectra never saw.
+// Both passes read the same PREFIX of the CHAIN under --max-events -- N events in
+// total across every input, not N per file. They must: a pool built from more
+// events than were binned would be a background estimated from a sample the
+// spectra never saw. The two implementations of that truncation are independent
+// (pass 0 counts by hand through InputChain's budget_take; pass 1 hands the whole
+// chain to RDataFrame::Range, which is already chain-wide) and the p0_events ==
+// n_events check below is what keeps them in lockstep.
 //
 // WHY PASS 1 IS NOT MULTITHREADED, THOUGH THE POOL WAS DESIGNED TO ALLOW IT
 // ------------------------------------------------------------------------
@@ -166,6 +194,7 @@
 #include "core/Pairing.hpp"
 #include "core/Types.hpp"
 #include "stageB_bin/DonorPool.hpp"
+#include "stageB_bin/InputChain.hpp"
 #include "util/Provenance.hpp"
 #include "util/Sha256.hpp"
 
@@ -177,6 +206,7 @@
 namespace {
 
 using RVecD = ROOT::VecOps::RVec<double>;
+using pi0::stageB::ChainInput;
 using pi0::util::Provenance;
 using pi0::util::utc_now;
 
@@ -185,33 +215,59 @@ using pi0::util::utc_now;
 // ===========================================================================
 
 struct Args {
-    std::string input;
+    /// Every --input, in the order given. REORDERED before use: the pool depends
+    /// on the sequence of offers, so the command line's order must not reach it.
+    /// See InputChain.hpp.
+    std::vector<std::string> inputs;
     std::string output;
     std::string config;
     std::string grid_a;
     std::string grid_b;
-    /// Stop after this many entries of the slim tree. nullopt = all of them.
-    /// `unsigned int` because that is what RDataFrame::Range takes.
+    /// Stop after this many entries of the CHAIN -- N in total across every
+    /// input, not N per input. nullopt = all of them. `unsigned int` because that
+    /// is what RDataFrame::Range takes; the budget is a long long everywhere else.
     std::optional<unsigned int> max_events;
+    /// Accept a Stage A file that says it is a truncated run. See InputChain.hpp.
+    bool allow_truncated_inputs{false};
 };
 
 void print_usage(const char* argv0) {
-    std::cerr << "usage: " << argv0 << " --input <slim.root> --output <binned.root>\n"
+    std::cerr << "usage: " << argv0 << " --input <slim.root> [--input <more.root> ...]\n"
+              << "                       --output <binned.root>\n"
               << "                       --config <cuts.json>\n"
               << "                       --grid-a <grid_A_q2_xb.json> --grid-b <grid_B_z_pt2.json>\n"
-              << "                       [--max-events <N>]\n"
+              << "                       [--max-events <N>] [--allow-truncated-inputs]\n"
               << "\n"
-              << "  --input       ONE Stage A slim ROOT file (TTree \"events\").\n"
+              << "  --input       a Stage A slim ROOT file (TTree \"events\"). Repeat for more; the N\n"
+              << "                files are ONE run over ONE donor pool, which is the point -- a pool\n"
+              << "                bin no input filled has NO mixed background, and one farm file fills\n"
+              << "                33 of the 224 shipped bins. Give a target ALL of its slims.\n"
+              << "                The order does not matter: the chain is sorted by content hash before\n"
+              << "                anything reads it, so a glob is safe and the pool is the same either\n"
+              << "                way. The resolved order is stamped into the output.\n"
+              << "                THE INPUTS MUST BE ONE TARGET. A chain disagreeing about its target,\n"
+              << "                cuts, GBT model, beam energy or polarity is REFUSED, not warned about:\n"
+              << "                nothing downstream knows a photon's target, so a mixed chain would\n"
+              << "                subtract one target's background from another's events and say nothing.\n"
               << "  --output      binned ROOT file to create (overwritten if it exists).\n"
               << "  --config      the cut configuration. Every threshold and every axis comes from here.\n"
               << "  --grid-a      the frozen (Q^2, x_B) grid. Its hash is stamped into the output.\n"
               << "  --grid-b      the frozen (z, p_T^2) grid. Its hash is stamped into the output.\n"
-              << "  --max-events  stop after the first N entries (default: all). BOTH passes are\n"
-              << "                truncated identically -- a pool built from more events than were\n"
-              << "                binned would estimate the background from a sample the spectra\n"
-              << "                never saw. The output is a PREFIX of the file, not a sample of it;\n"
-              << "                the truncation is stamped into the provenance so a partial run\n"
-              << "                cannot be mistaken for a full one.\n";
+              << "  --max-events  stop after the first N entries of the CHAIN (default: all). N TOTAL\n"
+              << "                ACROSS ALL INPUTS, not N per input: the inputs are read in canonical\n"
+              << "                order until the allowance is spent, so later ones may go unread. BOTH\n"
+              << "                passes are truncated identically -- a pool built from more events than\n"
+              << "                were binned would estimate the background from a sample the spectra\n"
+              << "                never saw. The output is a PREFIX of the chain, not a sample of it;\n"
+              << "                the truncation is stamped into the provenance so a partial run cannot\n"
+              << "                be mistaken for a full one.\n"
+              << "  --allow-truncated-inputs\n"
+              << "                accept an input whose own Stage A provenance says it is a TRUNCATED\n"
+              << "                run. Refused by default: such a file's event count is a prefix of its\n"
+              << "                HIPO, so N_DIS -- the normalisation denominator -- is short by an\n"
+              << "                unknown amount while its spectra look complete, and chained with full\n"
+              << "                files the shortfall is invisible. For smoke tests whose yields nobody\n"
+              << "                will quote. Stamped loudly into the output.\n";
 }
 
 /// \throws std::runtime_error on any malformed or missing argument.
@@ -223,7 +279,8 @@ void print_usage(const char* argv0) {
             if (i + 1 >= argc) throw std::runtime_error(flag + " requires a value");
             return argv[++i];
         };
-        if (flag == "--input") a.input = value();
+        if (flag == "--input") a.inputs.push_back(value());
+        else if (flag == "--allow-truncated-inputs") a.allow_truncated_inputs = true;
         else if (flag == "--output") a.output = value();
         else if (flag == "--config") a.config = value();
         else if (flag == "--grid-a") a.grid_a = value();
@@ -249,15 +306,21 @@ void print_usage(const char* argv0) {
                     "the whole input.");
             }
             if (n > std::numeric_limits<unsigned int>::max()) {
+                // The cap is RDataFrame::Range's, not this program's, and it is
+                // reachable now that one run chains a whole target: 30,866 slim
+                // files pass 2^32 events long before they run out. It is a
+                // refusal rather than a clamp for the reason the '-' check above
+                // exists -- a silently ignored limit reads as a full run.
                 throw std::runtime_error("--max-events " + v + " exceeds the largest range this program can take (" +
-                                         std::to_string(std::numeric_limits<unsigned int>::max()) + ").");
+                                         std::to_string(std::numeric_limits<unsigned int>::max()) +
+                                         "). Omit the flag to process every event of every input.");
             }
             a.max_events = static_cast<unsigned int>(n);
         } else {
             throw std::runtime_error("unknown argument \"" + flag + "\"");
         }
     }
-    if (a.input.empty()) throw std::runtime_error("--input is required");
+    if (a.inputs.empty()) throw std::runtime_error("at least one --input is required");
     if (a.output.empty()) throw std::runtime_error("--output is required");
     if (a.config.empty()) throw std::runtime_error("--config is required");
     if (a.grid_a.empty()) throw std::runtime_error("--grid-a is required");
@@ -310,43 +373,139 @@ void print_usage(const char* argv0) {
 // ===========================================================================
 // the seed
 // ===========================================================================
+//
+// THE CONTENT, NOT THE PATH -- and now the CHAIN's content, not one file's.
+// pi0::stageB::chain_digest() + seed_from_digest() are what cuts.json's
+// mixing.seed_mode = "file_hash" means; both live in InputChain.hpp, next to the
+// canonical ordering they share a digest with, because the ordering and the seed
+// have to make the same promise or neither does: the same data, anywhere, under
+// any names, in any command-line order, gives the same pool.
+//
+// Hashing the path would be cheaper and WRONG in a specific, nasty way -- copying
+// a file to another mount would change the seed and therefore the mixed
+// background, so the same data would give two answers from two directories. The
+// same argument is why the chain is sorted by content and not by path.
+//
+// Cost: one streaming read of each input. Real -- tens of seconds for a multi-GB
+// slim -- but this program then reads every input TWICE more, so it is a fraction
+// of the runtime and it buys the property the whole design rests on.
 
-/// Derive the donor pool's seed from the input file's CONTENT.
+/// One input's photons, e-gamma cut APPLIED, as DonorPhotons.
 ///
-/// cuts.json's mixing.seed_mode is "file_hash", and Cuts::load refuses any other
-/// mode. This function is what "file_hash" means, and the choice inside it is
-/// load-bearing:
-///
-/// THE CONTENT, NOT THE PATH. Hashing the path (or the path plus the size) would
-/// be cheaper and would be WRONG in a specific, nasty way: copying a file to
-/// another directory, or running the same data from a different mount, would
-/// change the seed and therefore change the mixed background -- so the same data
-/// would give two different answers depending on where somebody put it. The
-/// content hash makes the pool a function of the DATA, which is what
-/// reproducibility has to mean. Two identical files anywhere on any machine give
-/// the same pool.
-///
-/// Cost: one extra streaming read of the input. That is real -- for a multi-GB
-/// slim file it is tens of seconds -- but this program then reads the same file
-/// TWICE more, so it is a fraction of the runtime and it buys the property the
-/// whole design is built on.
-///
-/// The seed is the first 8 bytes of the SHA-256, big-endian. sha256 rather than
-/// something cheaper because util/Sha256.hpp already exists for the provenance
-/// fingerprints and a second hash function is a second copy of a constant. Only
-/// 64 of the 256 bits are used, which is fine: this seeds a std::mt19937_64, and
-/// the question is "do two different files collide by accident", not "can someone
-/// forge a seed".
-[[nodiscard]] std::uint64_t seed_from_file_content(const std::string& path, std::string& digest_out) {
-    digest_out = pi0::util::sha256_file(path);
-    std::uint64_t seed = 0;
-    for (int i = 0; i < 16; ++i) {  // 16 hex chars = 8 bytes
-        const char c = digest_out[static_cast<std::size_t>(i)];
-        const std::uint64_t nibble = (c >= '0' && c <= '9') ? static_cast<std::uint64_t>(c - '0')
-                                                            : static_cast<std::uint64_t>(c - 'a' + 10);
-        seed = (seed << 4) | nibble;
+/// *** PASS 0's HALF OF THE e-gamma INVARIANT, IN ONE PLACE. *** This is the only
+/// thing on the pass 0 path that turns a slim entry into photons, so it is called
+/// once per file rather than copy-pasted per input -- N copies of this filter
+/// would be N chances for the pool to be drawn from a different photon population
+/// than the spectra it models. It already had to agree with build_photons(); a
+/// per-input loop must not multiply that.
+[[nodiscard]] std::vector<pi0::DonorPhoton> build_donor_photons(const TTreeReaderArray<double>& gpx,
+                                                                const TTreeReaderArray<double>& gpy,
+                                                                const TTreeReaderArray<double>& gpz,
+                                                                const TTreeReaderArray<double>& gang,
+                                                                const pi0::Cuts& cuts) {
+    std::vector<pi0::DonorPhoton> out;
+    const std::size_t n = std::min({gpx.GetSize(), gpy.GetSize(), gpz.GetSize(), gang.GetSize()});
+    out.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!(gang[i] > cuts.pairing.e_gamma_min_angle_deg)) continue;
+        const double px = gpx[i], py = gpy[i], pz = gpz[i];
+        const double p = std::sqrt(px * px + py * py + pz * pz);
+        pi0::DonorPhoton d{};
+        d.px = static_cast<float>(px);
+        d.py = static_cast<float>(py);
+        d.pz = static_cast<float>(pz);
+        // Photons are massless: E = |p|, exactly as core/Types.hpp and Stage A
+        // define them.
+        d.e = static_cast<float>(p);
+        d.inv_p = static_cast<float>(p > 0.0 ? 1.0 / p : 0.0);
+        out.push_back(d);
     }
-    return seed;
+    return out;
+}
+
+/// What pass 0 counted, over the whole chain.
+struct PoolPassStats {
+    long long events{};
+    long long offered_events{};
+    long long no_class{};
+};
+
+/// Offer ONE input's events to the pool, sequentially.
+///
+/// \param budget  the CHAIN-WIDE --max-events allowance, decremented across
+///                inputs. Negative = unlimited. Threaded by reference, exactly as
+///                make_grid's read_slim does, because the alternative -- a counter
+///                scoped to this function -- would truncate at N PER FILE while
+///                pass 1's RDataFrame::Range truncates at N over the chain, and
+///                the pool would then model a strictly different sample from the
+///                spectra with every printed number still plausible.
+/// \param n_events_used  this input's own contribution, for the provenance. Under
+///                --max-events a file may be reached with the allowance already
+///                spent and contribute 0; stamping it per input is what makes
+///                "which files actually fed this pool" auditable rather than
+///                inferable from the flag.
+void read_pool_pass(const std::string& path, const pi0::Cuts& cuts, pi0::DonorPool& pool, PoolPassStats& stats,
+                    long long& budget, long long& n_events_used) {
+    std::unique_ptr<TFile> in(TFile::Open(path.c_str(), "READ"));
+    if (in == nullptr || in->IsZombie()) throw std::runtime_error("cannot open the input file: " + path);
+
+    TTreeReader reader("events", in.get());
+    if (reader.GetTree() == nullptr) {
+        throw std::runtime_error("the input has no TTree named \"events\": " + path);
+    }
+    TTreeReaderValue<double> r_q2(reader, "q2");
+    TTreeReaderValue<double> r_xb(reader, "xb");
+    TTreeReaderArray<double> r_gpx(reader, "gpx");
+    TTreeReaderArray<double> r_gpy(reader, "gpy");
+    TTreeReaderArray<double> r_gpz(reader, "gpz");
+    TTreeReaderArray<double> r_gang(reader, "g_e_gamma_deg");
+
+    bool stopped_on_budget = false;
+    while (reader.Next()) {
+        if (!pi0::stageB::budget_take(budget)) {
+            stopped_on_budget = true;
+            break;
+        }
+        ++stats.events;
+        ++n_events_used;
+
+        // Same filter as pass 1, same cut, one function. If this ever diverges
+        // from build_photons(), the pool is drawn from a different photon
+        // population than the spectra it has to model.
+        const std::vector<pi0::DonorPhoton> passing = build_donor_photons(r_gpx, r_gpy, r_gpz, r_gang, cuts);
+
+        const int b = pool.pool_bin(*r_q2, *r_xb, passing.size());
+        if (b < 0) {
+            // Off the pool grid in Q^2 or x_B, or in no multiplicity class --
+            // which INCLUDES zero passing photons. Not an error: an event with no
+            // photon has nothing to donate.
+            ++stats.no_class;
+            continue;
+        }
+        pool.offer(b, passing);
+        ++stats.offered_events;
+    }
+
+    // Ported from make_grid, and chaining is what makes it worth having: a
+    // schema-divergent file is now one file in N rather than the only file, so a
+    // missing branch must surface as an error (kEntryDictionaryError /
+    // kEntryChainSetupError) rather than as a column of silent zeroes in the pool.
+    //
+    // ONLY WHEN THE LOOP RAN TO THE END OF THE TREE. make_grid's copy of this
+    // check tests the status unconditionally, on the stated assumption that a
+    // clean budget break "leaves kEntryNotFound behind on some ROOT versions". It
+    // does not on this one -- it leaves kEntryValid, because the last Next() DID
+    // succeed and we simply chose not to use the entry -- so the unconditional
+    // form throws on a perfectly healthy file the moment --max-events runs out
+    // mid-file. That is a live defect in make_grid (its --max-events path over
+    // multiple inputs) and is not reproduced here. The status only describes the
+    // read that ended the loop, so it is only evidence when the READER ended it.
+    if (!stopped_on_budget && reader.GetEntryStatus() != TTreeReader::kEntryBeyondEnd &&
+        reader.GetEntryStatus() != TTreeReader::kEntryNotFound) {
+        throw std::runtime_error("failed reading \"events\" from " + path + " (TTreeReader status " +
+                                 std::to_string(static_cast<int>(reader.GetEntryStatus())) +
+                                 "). Check the branch list matches the Stage A schema.");
+    }
 }
 
 // ===========================================================================
@@ -452,12 +611,47 @@ int main(int argc, char* argv[]) {
         const int n3d = binning.n3d();
         const int n_a = binning.A.ncells();
 
+        // ---- the chain -----------------------------------------------------
+        // Read every input's identity and provenance, order the chain, and
+        // REFUSE anything that cannot be one run -- ALL of it before a single
+        // event is read. Two full passes over 30,866 files is not a thing to
+        // discover a mixed target at the end of, and a chain that should not have
+        // run must not leave a plausible output behind it.
+        std::vector<ChainInput> chain;
+        chain.reserve(args.inputs.size());
+        for (const std::string& path : args.inputs) {
+            ChainInput ci;
+            ci.path = path;
+            ci.sha256 = pi0::util::sha256_file(path);
+            {
+                std::unique_ptr<TFile> in(TFile::Open(path.c_str(), "READ"));
+                if (in == nullptr || in->IsZombie()) throw std::runtime_error("cannot open the input file: " + path);
+                ci.prov = Provenance::read(*in);
+            }
+            chain.push_back(std::move(ci));
+        }
+        pi0::stageB::order_canonically(chain);
+        pi0::stageB::validate_chain(chain, args.allow_truncated_inputs);
+
+        // The paths in canonical order. Pass 1 hands this to RDataFrame, which
+        // reads a chain in the order of the vector it is given -- so both passes
+        // see one sequence, and --max-events cuts both at the same prefix.
+        std::vector<std::string> ordered_paths;
+        ordered_paths.reserve(chain.size());
+        for (const ChainInput& ci : chain) ordered_paths.push_back(ci.path);
+
         // ---- the seed ------------------------------------------------------
-        std::string input_sha;
-        const std::uint64_t seed = seed_from_file_content(args.input, input_sha);
+        const std::string chain_sha = pi0::stageB::chain_digest(chain);
+        const std::uint64_t seed = pi0::stageB::seed_from_digest(chain_sha);
 
         std::cout << "stageB_bin\n"
-                  << "  input      : " << args.input << "  (sha256 " << input_sha.substr(0, 16) << "...)\n"
+                  << "  inputs     : " << chain.size() << " (in canonical order, by content hash)\n";
+        for (const ChainInput& ci : chain) {
+            std::cout << "               " << ci.sha256.substr(0, 16) << "...  " << ci.path << '\n';
+        }
+        std::cout << "  chain sha  : " << chain_sha.substr(0, 16)
+                  << (chain.size() == 1 ? "...  (one input: the chain's digest IS its digest)\n"
+                                        : "...  (sha256 of the per-input digests, in canonical order)\n")
                   << "  output     : " << args.output << '\n'
                   << "  config     : " << args.config << "  (sha256 " << config_sha.substr(0, 16) << "...)\n"
                   << "  grid A     : " << args.grid_a << '\n'
@@ -469,22 +663,26 @@ int main(int argc, char* argv[]) {
                   << "  mixing     : donors_per_bin = " << cuts.mixing.donors_per_bin
                   << ", seed_mode = " << cuts.mixing.seed_mode << '\n'
                   << "  seed       : 0x" << std::hex << std::setw(16) << std::setfill('0') << seed << std::dec
-                  << std::setfill(' ') << "  (first 8 bytes of the INPUT's sha256 -- its content, not its path)\n"
+                  << std::setfill(' ') << "  (first 8 bytes of the CHAIN's sha256 -- its content, not its paths)\n"
                   << "  max events : "
                   << (args.max_events.has_value()
-                          ? std::to_string(*args.max_events) + "   *** TRUNCATED RUN (--max-events) ***"
+                          ? std::to_string(*args.max_events) +
+                                "   *** TRUNCATED RUN (--max-events) *** -- TOTAL across all inputs"
                           : std::string("all"))
                   << "\n\n";
 
-        // ---- Stage A's provenance, read BEFORE anything else --------------
-        // Read up front so that a slim file without a provenance block is
-        // reported now rather than after two full passes.
-        Provenance stagea_prov;
-        {
-            std::unique_ptr<TFile> in(TFile::Open(args.input.c_str(), "READ"));
-            if (in == nullptr || in->IsZombie()) throw std::runtime_error("cannot open the input file: " + args.input);
-            stagea_prov = Provenance::read(*in);
-        }
+        // ---- Stage A's provenance ------------------------------------------
+        // Already read above, before the chain was validated, so a slim file
+        // without a provenance block is reported now rather than after two full
+        // passes over the whole chain.
+        //
+        // The WARNINGS below are asserted of the chain as a whole and read from
+        // chain.front(). That is not a shortcut and not a last-wins: validate_chain
+        // has already REFUSED any chain whose inputs disagree about config.sha256
+        // or gbt.fallback_used, so the front's value is every input's value. The
+        // things that legitimately differ across a chain -- run, above all -- are
+        // carried forward as LISTS below rather than being read off one file.
+        const Provenance& stagea_prov = chain.front().prov;
         if (stagea_prov.entries.empty()) {
             std::cout << "WARNING: the input has no /provenance directory. It was not written by this\n"
                       << "         project's stageA_skim, or it was written before provenance existed.\n"
@@ -495,20 +693,28 @@ int main(int argc, char* argv[]) {
             // was selected by different cuts from the ones being applied now, and
             // nothing downstream would ever notice. It warns rather than refuses
             // because re-binning an older skim with a newer config is a real and
-            // legitimate thing to do -- deliberately, and having been told.
+            // legitimate thing to do -- deliberately, and having been told. (That
+            // the CHAIN agrees with ITSELF on this hash is a different question,
+            // and that one is a refusal.)
             const std::string a_sha = stagea_prov.get("config.sha256");
             if (!a_sha.empty() && a_sha != config_sha) {
-                std::cout << "WARNING: the input was skimmed against a DIFFERENT cuts.json.\n"
+                std::cout << "WARNING: the inputs were skimmed against a DIFFERENT cuts.json.\n"
                           << "           Stage A config.sha256 : " << a_sha << '\n'
                           << "           this run's            : " << config_sha << '\n'
-                          << "         The photon and electron selections in that file are not the ones in\n"
+                          << "         The photon and electron selections in those files are not the ones in\n"
                           << "         " << args.config << ". Both hashes are recorded in the output.\n\n";
             }
             if (stagea_prov.get("gbt.fallback_used").rfind("TRUE", 0) == 0) {
-                std::cout << "WARNING: the input's photons were scored by an RG-A fallback GBT model trained\n"
+                std::cout << "WARNING: the inputs' photons were scored by an RG-A fallback GBT model trained\n"
                           << "         on OTHER data (Stage A provenance: gbt.fallback_used). Any plot made\n"
                           << "         from this output must say so. Propagated to the output.\n\n";
             }
+        }
+        if (args.allow_truncated_inputs) {
+            std::cout << "WARNING: --allow-truncated-inputs was given. At least one input may be a PREFIX of\n"
+                      << "         its HIPO, so N_DIS -- the normalisation denominator -- can be short by an\n"
+                      << "         unknown amount while the spectra look complete. NO YIELD, RATIO OR\n"
+                      << "         NORMALISATION FROM THIS OUTPUT MAY BE QUOTED. Stamped into the output.\n\n";
         }
 
         // ---- PASS 0: the frozen donor pool ---------------------------------
@@ -516,65 +722,33 @@ int main(int argc, char* argv[]) {
         // phase is not thread-safe and not merely as an omission: reservoir
         // sampling is order-dependent by nature, so a parallel pre-pass would make
         // the pool depend on scheduling -- the exact defect it exists to remove.
-        std::cout << "--- pass 0: building the donor pool (sequential) ---\n";
+        //
+        // ONE pool over the WHOLE chain: it is constructed here, before the loop,
+        // and frozen after it. That is already the natural shape -- the pool never
+        // needed to know how many files fed it -- and it is the entire point of
+        // --input repeating, since a bin no input reached has no background at all.
+        std::cout << "--- pass 0: building the donor pool (sequential, over the whole chain) ---\n";
         pi0::DonorPool pool(cuts.mixing.pool_grid, seed, cuts.mixing.donors_per_bin);
 
-        long long p0_events = 0, p0_offered_events = 0, p0_no_class = 0;
-        {
-            std::unique_ptr<TFile> in(TFile::Open(args.input.c_str(), "READ"));
-            if (in == nullptr || in->IsZombie()) throw std::runtime_error("cannot open the input file: " + args.input);
-
-            TTreeReader reader("events", in.get());
-            if (reader.GetTree() == nullptr) {
-                throw std::runtime_error("the input has no TTree named \"events\": " + args.input);
-            }
-            TTreeReaderValue<double> r_q2(reader, "q2");
-            TTreeReaderValue<double> r_xb(reader, "xb");
-            TTreeReaderArray<double> r_gpx(reader, "gpx");
-            TTreeReaderArray<double> r_gpy(reader, "gpy");
-            TTreeReaderArray<double> r_gpz(reader, "gpz");
-            TTreeReaderArray<double> r_gang(reader, "g_e_gamma_deg");
-
-            while (reader.Next()) {
-                if (args.max_events.has_value() && p0_events >= static_cast<long long>(*args.max_events)) break;
-                ++p0_events;
-
-                // Same filter as pass 1, same function, same cut. If this ever
-                // diverges from pass 1, the pool is drawn from a different photon
-                // population than the spectra it has to model.
-                std::vector<pi0::DonorPhoton> passing;
-                const std::size_t n_g = std::min({r_gpx.GetSize(), r_gpy.GetSize(), r_gpz.GetSize(), r_gang.GetSize()});
-                for (std::size_t i = 0; i < n_g; ++i) {
-                    if (!(r_gang[i] > cuts.pairing.e_gamma_min_angle_deg)) continue;
-                    const double px = r_gpx[i], py = r_gpy[i], pz = r_gpz[i];
-                    const double p = std::sqrt(px * px + py * py + pz * pz);
-                    pi0::DonorPhoton d{};
-                    d.px = static_cast<float>(px);
-                    d.py = static_cast<float>(py);
-                    d.pz = static_cast<float>(pz);
-                    // Photons are massless: E = |p|, exactly as core/Types.hpp
-                    // and Stage A define them.
-                    d.e = static_cast<float>(p);
-                    d.inv_p = static_cast<float>(p > 0.0 ? 1.0 / p : 0.0);
-                    passing.push_back(d);
-                }
-
-                const int b = pool.pool_bin(*r_q2, *r_xb, passing.size());
-                if (b < 0) {
-                    // Off the pool grid in Q^2 or x_B, or in no multiplicity class
-                    // -- which INCLUDES zero passing photons. Not an error: an
-                    // event with no photon has nothing to donate.
-                    ++p0_no_class;
-                    continue;
-                }
-                pool.offer(b, passing);
-                ++p0_offered_events;
+        PoolPassStats p0;
+        // The allowance is CHAIN-WIDE and is threaded through every input by
+        // reference. Negative = unlimited, matching make_grid's read_slim.
+        long long budget = args.max_events.has_value() ? static_cast<long long>(*args.max_events) : -1;
+        for (ChainInput& ci : chain) {
+            read_pool_pass(ci.path, cuts, pool, p0, budget, ci.n_events_used);
+            std::cout << "  read " << std::setw(9) << ci.n_events_used << " events from " << ci.path << '\n';
+            if (budget == 0) {
+                std::cout << "  (--max-events reached; the remaining inputs are not read. They are stamped\n"
+                          << "   into the provenance with n_events_used = 0 -- they are in the chain, hence\n"
+                          << "   in the seed, and contributed nothing.)\n";
+                break;
             }
         }
         pool.freeze();
-        std::cout << "  events read            : " << p0_events << '\n'
+        const long long p0_events = p0.events, p0_offered_events = p0.offered_events;
+        std::cout << "  events read            : " << p0_events << "  (total, over " << chain.size() << " input(s))\n"
                   << "  events offered         : " << p0_offered_events << '\n'
-                  << "  events in no pool bin  : " << p0_no_class
+                  << "  events in no pool bin  : " << p0.no_class
                   << "  (off the pool grid, or no e-gamma-passing photon)\n"
                   << "  pool bins filled       : " << pool.n_filled() << " of " << pool.n_bins() << '\n';
         pool.report_underfilled(std::clog);
@@ -610,8 +784,15 @@ int main(int argc, char* argv[]) {
         long long n_bsa_filled = 0, n_hel_undef = 0;
         long long n_no_pool_bin = 0;
 
-        ROOT::RDataFrame df("events", args.input);
+        // The CANONICAL order, not the command line's: RDataFrame reads a chain in
+        // the order of the vector it is given, and pass 0 offered the pool in that
+        // same order. Two passes over two orders would truncate at two different
+        // prefixes under --max-events and the p0_events check below would catch it
+        // -- but only when --max-events is given, which is not when it matters.
+        ROOT::RDataFrame df("events", ordered_paths);
         ROOT::RDF::RNode node = df;
+        // Range over a multi-file RDataFrame is already N TOTAL across the chain,
+        // not N per file -- the same allowance pass 0 spends through budget_take.
         // Range is single-thread only. This program never enables implicit MT, so
         // that costs nothing -- and see the header for why MT is off.
         if (args.max_events.has_value()) node = node.Range(0u, *args.max_events);
@@ -791,11 +972,19 @@ int main(int argc, char* argv[]) {
                                          " binned + " + std::to_string(n_off_grid_a) + " off Grid A != " +
                                          std::to_string(n_events) + " events read.");
             }
+            // THE CHEAPEST TEST OF THE WHOLE MULTI-INPUT PATH, and it must not be
+            // weakened. The two passes truncate through INDEPENDENT machinery --
+            // pass 0 counts by hand across the per-file loop (budget_take), pass 1
+            // hands the chain to RDataFrame::Range -- so this equality is what
+            // proves they agree about what "N events" means. A budget scoped per
+            // file rather than per chain fails here and nowhere else.
             if (p0_events != n_events) {
                 throw std::runtime_error(
                     "the two passes read different numbers of events (" + std::to_string(p0_events) + " vs " +
-                    std::to_string(n_events) +
-                    "). The donor pool would then be drawn from a different sample than the spectra it models.");
+                    std::to_string(n_events) + ") over " + std::to_string(chain.size()) +
+                    " input(s). The donor pool would then be drawn from a different sample than the spectra it "
+                    "models. Under --max-events this is what a PER-FILE truncation looks like where a CHAIN-WIDE "
+                    "one was meant.");
             }
         }
 
@@ -970,21 +1159,84 @@ int main(int argc, char* argv[]) {
         }
 
         // ---- provenance ------------------------------------------------------
-        // TWO directories, and they are not merged.
+        // N + 1 directories, and none of them are merged.
         //
-        //   /provenance          -- what THIS stage did and stands behind.
-        //   /provenance_stageA   -- what the INPUT said about itself, VERBATIM.
+        //   /provenance              -- what THIS stage did and stands behind.
+        //   /provenance_stageA_000   -- what INPUT 0 said about itself, VERBATIM.
+        //   /provenance_stageA_001   -- input 1, and so on, in CANONICAL order.
         //
-        // Not merged, because both blocks have an `input.path` and a
-        // `config.sha256` and they mean different files. Merging would need
-        // renaming, and a renamed provenance value is a value somebody has already
-        // interpreted for you. Kept apart, an inherited value can never be mistaken
-        // for one this stage asserts. A Stage C repeats the pattern.
+        // The stage's own block is not merged with an input's, because both have
+        // an `input.path` and a `config.sha256` and they mean different files.
+        // Merging would need renaming, and a renamed provenance value is a value
+        // somebody has already interpreted for you. Kept apart, an inherited value
+        // can never be mistaken for one this stage asserts. A Stage C repeats the
+        // pattern.
+        //
+        // ONE /provenance_stageA_NNN PER INPUT, and they are not merged either.
+        // The number is the CANONICAL index -- the order the pool was actually
+        // offered in, which is not the command line's. Merging N Stage A blocks
+        // into one is impossible rather than merely untidy: every block has its
+        // own `input.path`, `run` and `config.sha256`, Provenance::add appends
+        // with no dedup (duplicate keys become ROOT cycles ;1 ;2, and get() would
+        // then silently answer with whichever ROOT handed back first), and a
+        // single mkdir("provenance_stageA") called N times collides. Stage A pins
+        // ONE run per file by refusing a multi-run HIPO, because a header naming
+        // one run "would be a lie"; flattening N of those headers into one block
+        // would tell exactly that lie one stage later.
         Provenance prov;
         prov.add("stageB_bin.code_version", PI0_CODE_VERSION);
         prov.add("stageB_bin.created_utc", utc_now());
-        prov.add("input.path", args.input);
-        prov.add("input.sha256", input_sha);
+        prov.add("inputs.n", std::to_string(chain.size()));
+        // THE ORDERED LIST, and the order is load-bearing rather than cosmetic:
+        // the pool is a reservoir, reservoir sampling is a function of the
+        // SEQUENCE of offers, so this list -- not the command line -- is what
+        // produced the mixed background in this file.
+        {
+            std::ostringstream os;
+            for (std::size_t i = 0; i < chain.size(); ++i) {
+                os << (i ? "\n" : "") << i << ": " << chain[i].sha256.substr(0, 16) << "...  " << chain[i].path
+                   << "  (n_events_used=" << chain[i].n_events_used << ")";
+            }
+            prov.add("inputs.ordered", os.str());
+        }
+        for (std::size_t i = 0; i < chain.size(); ++i) {
+            const std::string k = "inputs." + std::to_string(i);
+            prov.add(k + ".path", chain[i].path);
+            prov.add(k + ".sha256", chain[i].sha256);
+            // Per input, not just the chain total. Under --max-events an input can
+            // be reached with the allowance spent and contribute NOTHING while
+            // still folding into the seed -- so "which files actually fed this
+            // pool" must be readable off the artefact rather than re-derived from
+            // the flag and the file sizes.
+            prov.add(k + ".n_events_used", std::to_string(chain[i].n_events_used));
+        }
+        prov.add("inputs.order",
+                 "ASCENDING BY CONTENT SHA-256, not by path and not as typed. The pool is a reservoir sample and "
+                 "reservoir sampling is a function of the SEQUENCE of offers, so `--input a --input b` and "
+                 "`--input b --input a` would otherwise build different pools from the same data -- and a farm glob "
+                 "promises no order. The key is the CONTENT because sorting by path would make the pool depend on "
+                 "where somebody put the files: copy a target's slims to another mount and the order, the offer "
+                 "sequence and the background would all move. The list above is the order this run actually used.");
+        prov.add("inputs.target",
+                 pi0::stageB::prov_lookup(stagea_prov, "target").value_or("unknown (the inputs carry no provenance)") +
+                     " -- VALIDATED IDENTICAL ACROSS EVERY INPUT. A chain whose inputs disagreed about their target "
+                     "is REFUSED, not warned about: one donor pool is built from all of them and nothing downstream "
+                     "of the read knows a photon's target (a donor is four floats), so a mixed chain would make one "
+                     "target's photons the mixed background subtracted from another's events -- corrupting both the "
+                     "numerator and the denominator of R_A while producing ordinary-looking spectra.");
+        {
+            // A LIST, because this is the field that legitimately differs across a
+            // chain and is the reason --input repeats at all. Stage A refuses a
+            // multi-run HIPO (exit 5) precisely so that one file means one run;
+            // one output over 30,866 files means 30,866 runs, and the honest
+            // record of that is all of them, not the first one encountered.
+            const std::vector<std::string> runs = pi0::stageB::distinct_values(chain, "run");
+            std::ostringstream os;
+            for (std::size_t i = 0; i < runs.size(); ++i) os << (i ? "," : "") << runs[i];
+            if (runs.empty()) os << "unknown (the inputs carry no provenance)";
+            prov.add("inputs.runs", os.str());
+            prov.add("inputs.n_runs", std::to_string(runs.size()));
+        }
         prov.add("config.path", args.config);
         prov.add("config.sha256", config_sha);
         prov.add("config.sha256_matches_stageA",
@@ -1038,11 +1290,23 @@ int main(int argc, char* argv[]) {
             os << "0x" << std::hex << std::setw(16) << std::setfill('0') << seed;
             prov.add("mixing.seed", os.str());
         }
+        prov.add("mixing.chain_sha256", chain_sha);
         prov.add("mixing.seed_derivation",
-                 "the first 8 bytes, big-endian, of the SHA-256 of the INPUT FILE'S CONTENT (input.sha256 above). "
-                 "The CONTENT, not the path: hashing the path would make the mixed background depend on where "
-                 "somebody put the file, so the same data would give two answers from two directories. Two identical "
-                 "files anywhere give the same pool.");
+                 std::string("the first 8 bytes, big-endian, of mixing.chain_sha256 above. ") +
+                     (chain.size() == 1
+                          ? "This run had ONE input, and a one-input chain's digest IS that input's sha256 -- not a "
+                            "hash of it. That is deliberate and load-bearing: it makes a single-input run "
+                            "bit-for-bit identical to one made before --input could repeat, so re-hashing does not "
+                            "silently move the seed, the pool and the mixed background of every existing result."
+                          : "For a chain the digest is the SHA-256 of the per-input sha256 digests concatenated in "
+                            "CANONICAL order (inputs.order above). Since that order is itself derived from the "
+                            "content, the seed does not depend on the order the files were typed: `--input a "
+                            "--input b` and `--input b --input a` give the same seed and the same pool. The digests "
+                            "are concatenated rather than xor'd or summed -- those commute, so they would collide "
+                            "on any permutation of the same files, which is the case this must distinguish.") +
+                     " THE CONTENT, NOT THE PATHS: hashing a path would make the mixed background depend on where "
+                     "somebody put the files, so the same data would give two answers from two directories. The "
+                     "same data, anywhere, under any names, gives the same pool.");
         prov.add("mixing.donors_per_bin", std::to_string(cuts.mixing.donors_per_bin));
         prov.add("mixing.pool_bins", std::to_string(pool.n_bins()) + " (Q2 x xB x n_photons class, from cuts.json "
                                                                      "/mixing/pool_grid -- NOT Grid A)");
@@ -1097,10 +1361,32 @@ int main(int argc, char* argv[]) {
         prov.add("events.max_events_requested",
                  args.max_events.has_value()
                      ? std::to_string(*args.max_events) +
-                           " -- TRUNCATED RUN: both passes read only this PREFIX of the input, so no yield or "
-                           "normalisation in this file is complete"
-                     : std::string("all (no --max-events; the whole input was read)"));
-        prov.add("events.read", std::to_string(n_events));
+                           " -- TRUNCATED RUN: both passes read only this PREFIX of the CHAIN -- N events in TOTAL "
+                           "across all inputs, in inputs.order, not N per input -- so no yield or normalisation in "
+                           "this file is complete. Inputs late in the order may have contributed nothing; see each "
+                           "inputs.N.n_events_used"
+                     : std::string("all (no --max-events; every event of every input was read)"));
+        // A SEPARATE KEY FROM events.max_events_requested, and deliberately not
+        // folded into it. That one is about what THIS stage read; this is about
+        // what its INPUTS were, which is a defect this stage cannot undo and did
+        // not cause. Stamped whether or not the flag was given, so that "no input
+        // was truncated" is an assertion in the file rather than an inference from
+        // an absent key -- Provenance::get() cannot tell an absent key from an
+        // empty value, so a key that is present only sometimes is a key nobody
+        // can check.
+        prov.add("inputs.allow_truncated",
+                 args.allow_truncated_inputs
+                     ? std::string(
+                           "TRUE -- *** --allow-truncated-inputs WAS GIVEN. AT LEAST ONE INPUT MAY BE A TRUNCATED "
+                           "STAGE A RUN: its event count is a PREFIX of its HIPO, so N_DIS -- the normalisation "
+                           "denominator -- can be short by an unknown amount while the spectra look complete. NO "
+                           "YIELD, RATIO OR NORMALISATION FROM THIS FILE MAY BE QUOTED. *** This flag exists for "
+                           "smoke tests; a production run must not carry it. Which inputs were truncated is in each "
+                           "provenance_stageA_NNN/events.max_events_requested.")
+                     : std::string("false (the default: every input asserted a full Stage A run, or carried no "
+                                   "provenance at all to assert with)"));
+        prov.add("events.read", std::to_string(n_events) + " (total, over " + std::to_string(chain.size()) +
+                                    " input(s); the per-input split is in inputs.N.n_events_used)");
         prov.add("events.off_grid_a",
                  std::to_string(n_off_grid_a) + " of " + std::to_string(n_events) +
                      " events fell outside Grid A's (Q2, xB) range and are in NO N_DIS cell. They are real DIS "
@@ -1124,10 +1410,33 @@ int main(int argc, char* argv[]) {
 
         out->cd();
         prov.write(*out, "provenance");
-        stagea_prov.write(*out, "provenance_stageA");
-        prov.write_text(*out, "provenance_text");
+        // ONE DIRECTORY PER INPUT, numbered by CANONICAL index. Zero-padded to
+        // three digits so that a 30,866-file chain lists in ROOT's alphabetical
+        // key order in the order it ran, and so that `provenance_stageA_000` is
+        // greppable as "the first file offered to the pool". The index is the
+        // subscript of inputs.N.path in /provenance -- one number joins them.
+        for (std::size_t i = 0; i < chain.size(); ++i) {
+            std::ostringstream dir;
+            dir << "provenance_stageA_" << std::setw(3) << std::setfill('0') << i;
+            out->cd();
+            chain[i].prov.write(*out, dir.str().c_str());
+        }
         out->cd();
-        stagea_prov.write_text(*out, "provenance_stageA_text");
+        prov.write_text(*out, "provenance_text");
+        // The text form of every input's block, concatenated with a header naming
+        // the file each came from -- the one place a human reads the whole chain's
+        // inheritance at once, and the reason the per-input blocks can stay
+        // separate without becoming unreadable.
+        {
+            std::ostringstream os;
+            for (std::size_t i = 0; i < chain.size(); ++i) {
+                os << "=== input " << i << " : " << chain[i].path << " (sha256 " << chain[i].sha256 << ")\n"
+                   << chain[i].prov.as_text() << (i + 1 < chain.size() ? "\n" : "");
+            }
+            out->cd();
+            TObjString text(os.str().c_str());
+            text.Write("provenance_stageA_text");
+        }
         out->Close();
 
         // ---- report -----------------------------------------------------------

@@ -245,7 +245,8 @@ seeded pre-pass; pass 1 bins, with mixing reduced to a stateless lookup against 
 ```sh
 ./build/src/stageB_bin/stageB_bin \
     --input  slim/LD2_018500.root \
-    --output binned/LD2_018500.root \
+    --input  slim/LD2_018501.root \
+    --output binned/LD2.root \
     --config config/cuts.json \
     --grid-a config/binning/grid_A_q2_xb.json \
     --grid-b config/binning/grid_B_z_pt2.json
@@ -253,12 +254,38 @@ seeded pre-pass; pass 1 bins, with mixing reduced to a stateless lookup against 
 
 | Option | Required | Meaning |
 | --- | --- | --- |
-| `--input <slim.root>` | yes | One Stage A file (TTree `events`). |
+| `--input <slim.root>` | yes | A Stage A file (TTree `events`). **Repeatable** — see below. |
 | `--output <binned.root>` | yes | Binned ROOT file to create. |
 | `--config <cuts.json>` | yes | Every threshold and every axis. |
 | `--grid-a <json>` | yes | The frozen $(Q^2,x_B)$ grid. Its hash is stamped into the output. |
 | `--grid-b <json>` | yes | The frozen $(z,p_T^2)$ grid. Ditto. |
-| `--max-events <N>` | no | Stop after N entries. **Both passes are truncated identically** — a pool built from more events than were binned would estimate the background from a sample the spectra never saw. |
+| `--max-events <N>` | no | Stop after N entries **in total across all inputs**, not per input. **Both passes are truncated identically** — a pool built from more events than were binned would estimate the background from a sample the spectra never saw. |
+| `--allow-truncated-inputs` | no | Accept an input that Stage A itself marked truncated. Off by default; see below. |
+
+**Give a target all of its slims in one run.** The donor pool is a reservoir per
+$(Q^2, x_B, N_\gamma)$ bin, and a bin no input filled has **no** mixed background
+at all — not a thin one, a missing one. One farm slim fills **33 of the 224**
+shipped pool bins; two fill 56. Running Stage B once per file and combining
+afterwards is not an option anyway: `pi0.io.load` requires dense rows, so `hadd`
+of two binned files is rejected.
+
+Three properties make chaining safe, all of them checked:
+
+- **Order does not matter.** The chain is sorted by **content SHA-256** before
+  anything reads it, so a shell glob is safe: `--input a --input b` and
+  `--input b --input a` give bit-identical outputs. Sorting by *path* would have
+  made the pool depend on where the files live — copy a target's slims to another
+  mount and the offer sequence, and so the background, would move. The resolved
+  order and the seed are stamped into the output.
+- **A mixed chain is refused, not warned about.** Inputs must agree on target,
+  config hash, GBT model, beam energy and polarity. Nothing downstream of the
+  read knows a photon's target — a donor is four floats — so chaining LD₂ with Sn
+  would make one target's photons the mixed background subtracted from the
+  other's events, corrupting both halves of $R_A$ while the spectra looked
+  entirely ordinary.
+- **A truncated input is refused.** Stage A marks its own output when
+  `--max-events` was used. Chained with full files, its short N_DIS — the $R_A$
+  normalisation denominator — would be invisible.
 
 **Output** — four flat TTrees, readable by uproot with no ROOT and no dictionary:
 
@@ -382,6 +409,214 @@ the old code's `0.85` was a self-declared placeholder, and every $A_{LU}$ it
 published scales by $0.85/P_\text{true}$.
 
 ---
+
+## Running it at scale — the farm and `local_batch`
+
+Steps 1–4 above are the pipeline for one file. LD₂ alone is 30,866 HIPO files
+spanning 160 runs — of which **135 are the outbending production** (see the run
+lists below). So there are two drivers:
+
+| | | |
+| --- | --- | --- |
+| `python -m pi0.batch` | JLab farm, **SWIF2** | fans Stage A out over ~28k jobs |
+| `python -m pi0.local_batch` | one machine, N subprocesses | the same selection, no scheduler |
+
+Both are **pure standard library** — no uproot, no numpy, no ROOT, no build.
+That is deliberate: you submit from an ifarm login node, which has no business
+carrying the extraction stage's dependencies.
+
+### The run lists — read this before your first submission
+
+`config/runs.json` holds the RG-D run lists, transcribed from clas-framework's
+`clas12/Runs.hpp`. Both drivers **refuse any file whose run is not in the
+requested (polarity, target) list**.
+
+This is not bookkeeping. Inbending and outbending runs live in the **same `/mss`
+directory tree** — LD₂ inbending is 18305–18336, outbending starts at 18419 — and
+**the slim schema does not record polarity**, so a plain recursive scan mixes
+torus polarities into one dataset and nothing downstream can notice. The note
+(`tab:runs`) records that the original lists were *"not applied by any binary"*;
+this is what applies them.
+
+Measured against clas-framework's real LD₂ file list (`ld2_files.dat`, 30,866
+files, named as the input in `swif2_pi0_skim.py`'s own docstring):
+
+```
+files accepted : 27971
+files rejected :  2895   (9.4%)
+                  2739   all 24 inbending LD2 runs — wrong torus polarity
+                   156   run 18432 — in NEITHER list: it is
+                         LD2_trigger_rgd_v2_2_Q2_2_5, a Q2 > 2.5 trigger config
+```
+
+Run 18432 is the one to worry about: a Q²-biased trigger sculpts the Q² spectrum,
+and **Q² is a Grid A binning axis**.
+
+Four targets, three run lists — Cu and Sn are two foils in one assembly exposed
+in the *same* CuSn runs and separated only by the electron `vz` window, so
+`Cu.farm.json` and `Sn.farm.json` point at an identical `/mss` tree and differ
+only in `target`.
+
+### Farm config
+
+One per target, in `config/farm/`. It carries **no cut values** — only where the
+data is and what resources to ask for. A threshold here is a bug (there is a test
+asserting it).
+
+```jsonc
+{ "farm": {
+    "target": "LD2",              // LD2 | CxC | Cu | Sn  (NOT CuSn — that is a run list)
+    "polarity": "outbending",     // selects the run list; flipping it selects inbending
+    "inputs": ["/mss/clas12/rg-d/production/pass1/recon/LD2/dst/recon/"],
+    "files_per_job": 1,
+    "exclude_runs": [],
+    "output_dir": "/volatile/clas12/users/ouillon/rgd-pi0/LD2",
+    "log_dir":    "/volatile/clas12/users/ouillon/rgd-pi0/LD2/logs",
+    "swif2": {
+      "workflow": "rgd_pi0_stageA_LD2_outbending",
+      "account": "clas12", "partition": "production",
+      "cores": 1, "ram_gb": 4, "disk_gb": 20, "time": "04:00:00",
+      "modules": { "load": ["gcc/13.2.0", "root/6.36.04"] },
+      "tags": { "stream": "pi0", "pass": "pass1" }
+    },
+    "env": {}
+} }
+```
+
+Two nesting details are inherited from clas-framework's *code* (its struct layout
+suggests otherwise, and copying that gets them backwards): **`env` is a child of
+`farm`**, not of `farm.swif2`; and **`modules` is an object with a `load` array**,
+not a bare array. A bare array parses fine and silently loads nothing, so the job
+fails on the node for want of ROOT rather than at submit — `load_farm_config`
+refuses it instead.
+
+`time` is converted to SWIF2's seconds form (`04:00:00` → `14400s`) at synthesis,
+and a malformed value is **refused at parse time**. clas-framework returns
+malformed input unchanged and lets SWIF2 reject it after you have submitted.
+
+### Farm: Stage A
+
+```sh
+python -m pi0.batch config/farm/LD2.farm.json                    # dry-run
+python -m pi0.batch config/farm/LD2.farm.json --submit
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--config <dir>` | config **directory** (default `config`). Needs `cuts.json` + `runs.json`. |
+| `--submit` | actually run the generated script. Default is dry-run. |
+| `--stage a\|b` | which stage to drive (default `a`). |
+| `--file-list <f>` | take the file list from a `.dat` instead of scanning. **Prefer this on a login node** — scanning 30k tape paths is slow, and the list is then a record of exactly what the production consumed. |
+| `--files-per-job N` | override `farm/files_per_job`. |
+| `--workflow NAME` | override `farm/swif2/workflow`. |
+| `--max-jobs N` | synthesize at most N jobs. Labelled a test submission in the output. |
+| `--scripts-dir <d>` | where wrappers + the swif2 script go (default `batch_scripts`). |
+| `--exe <path>` | `stageA_skim` **as seen on the node**. |
+| `--allow-rga-fallback-production` | submit despite the pre-flight blocker below. |
+
+The dry-run writes the wrapper scripts and the swif2 script and **nothing else** —
+unlike clas-framework's, whose dry-run performs its full snapshot copy (hundreds
+of MB, clobbering the previous workflow's frozen program dir) before it ever
+checks `--submit`.
+
+**The pre-flight is the most valuable thing here.** On RG-D, `stageA_skim` exits 3
+for *every* run, so a production submitted with `photon.allow_rga_fallback = false`
+is ~28,000 identical failures:
+
+```
+============================================================================
+REFUSING TO SUBMIT
+============================================================================
+  * photon.allow_rga_fallback is false, and NO GBT PHOTON MODEL COVERS RG-D.
+      The model map stops at run 16772; RG-D is 18305-19131. stageA_skim will
+      exit 3 on every one of these 27971 jobs. ...
+```
+
+With the fallback on, it submits — and says so in a way you cannot miss, because
+every output is then stamped `gbt.fallback_used = TRUE` and the Python stage will
+refuse to publish from it.
+
+Each job stages its chunk's HIPO files from tape as `input_0.hipo …`, runs the
+skim **once per file** (`stageA_skim` takes one file per invocation), and copies
+back `slim_<i>.root` plus a log. The wrapper deliberately does **not** use
+`set -e`: one bad file must not abandon the rest of the chunk with a zero exit.
+
+Monitor and retry the usual way:
+
+```sh
+swif2 status    -workflow rgd_pi0_stageA_LD2_outbending
+swif2 list-jobs -workflow rgd_pi0_stageA_LD2_outbending -display problems
+swif2 retry-jobs -workflow rgd_pi0_stageA_LD2_outbending -problems
+```
+
+### Farm: Stage B
+
+```sh
+python -m pi0.batch config/farm/LD2.farm.json --stage b          # print the command
+python -m pi0.batch config/farm/LD2.farm.json --stage b --submit  # run it
+```
+
+Stage B is **not** a SWIF2 workflow, on purpose. It is one job per target, it
+needs *every* Stage A output, and it runs **once over all of them** so the donor
+pool is drawn from the whole target rather than one file at a time. There is
+nothing for a scheduler to overlap, and expressing "wait for all of A" as SWIF2
+antecedents would mean one job with ~28,000 of them. (clas-framework has no
+antecedent support at all — its `JobSpec` has four fields and emits a flat
+create/add-job/run.)
+
+`stageB_bin` takes **repeated `--input`** for this, and validates that every input
+agrees on target, config hash and photon model. Chaining an LD₂ slim into an Sn
+run would put Sn photons into LD₂'s mixed background and quietly corrupt both
+halves of R_A — so it refuses.
+
+### local_batch
+
+```sh
+python -m pi0.local_batch --farm config/farm/LD2.farm.json --concurrent 8
+python -m pi0.local_batch --input /path/to/hipo --target LD2 --concurrent 8
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--farm <f>` | a farm JSON: gives inputs, target, and the run-list filter. |
+| `--input <p>` | a directory or one file, instead of `--farm`. Needs `--target`. |
+| `--target`, `--polarity` | with `--input`. |
+| `--no-run-filter` | skip the run-list filter. **Only** for non-production data (a test file, one run you are debugging). |
+| `--concurrent N` | how many skims run at once (default: half your cores). |
+| `--outdir <d>` | slims land at `<d>/<run>/slim_<stem>.root`, logs at `<d>/logs/`. |
+| `--max-events N` | per file. A prefix, not a sample — stamped into every output. |
+| `--max-files N` | process at most N files. |
+| `--dry-run` | plan and print; run nothing. |
+| `--stage-b` | after Stage A, run the single Stage B over every slim produced. |
+
+**There is no `--slices`.** clas-framework's `local_batch` slices one big HIPO
+file into record ranges because its analysis binary honours `--record-range`.
+`stageA_skim` has no such flag and takes one file per invocation *by contract*
+(it exits 5 on a multi-run file, because its provenance header records a single
+run and a single model, and recording one for a file holding several would be a
+lie). With ~30k files the file *is* the natural unit, so `--concurrent` is the
+only parallelism knob and it means what it says.
+
+Two things this does that the tool it mirrors does not:
+
+- **A failure names the file, the exit code, what that code means, and the log.**
+  clas-framework's prints `Slices: 100 (99 OK, 1 failed)` and stops — you grep
+  100 logs by hand.
+  ```
+  FAILURES, by exit code:
+    exit 3 -- NO GBT PHOTON MODEL COVERS THIS RUN -- expected on RG-D unless
+              photon.allow_rga_fallback is true   (1 file(s))
+        /path/rec_clas_022083.evio.00000-00009.hipo
+          log: slim/logs/rec_clas_022083.evio.00000-00009.log
+  ```
+- **Ctrl-C kills the children.** clas-framework's has no signal handling; its
+  children die only because the terminal happens to deliver SIGINT to the whole
+  foreground process group, which stops being true the moment anything puts them
+  in their own group.
+
+`--stage-b` **refuses if any Stage A job failed**: the slim set would be
+incomplete, and N_DIS — the R_A normalisation denominator — would be short by
+those files with nothing in the output recording it.
 
 ## Refusals, and what they mean
 

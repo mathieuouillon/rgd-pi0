@@ -1,0 +1,47 @@
+{
+  "_comment": "Farm submission for the RG-D pi0 Stage A skim, target CxC. Dry-run:\n  python -m pi0.batch config/farm/CxC.farm.json\nSubmit:\n  python -m pi0.batch config/farm/CxC.farm.json --submit\nThen, once every Stage A job is done:\n  python -m pi0.batch config/farm/CxC.farm.json --stage b\n\nTHIS FILE DOES NOT CARRY CUT VALUES. Every threshold lives in config/cuts.json and the run lists in config/runs.json; this file says only WHERE the data is and WHAT RESOURCES to ask for. A cut value appearing here is a bug.",
+  "_schema_version": 1,
+  "_runlist_comment": "target CxC -> run list CxC. pi0.farm REFUSES any input file whose run is not in the outbending CxC list of config/runs.json. THIS IS NOT DECORATION: the /mss tree below holds INBENDING runs alongside outbending ones (LD2 inbending is 18305-18336, outbending starts at 18419), and the slim schema does not record polarity -- so a plain recursive scan mixes torus polarities into one dataset and nothing downstream can notice. The note (tab:runs) records that the original run lists were 'not applied by any binary'; this key is what applies them.",
+  "farm": {
+    "target": "CxC",
+    "polarity": "outbending",
+    "_polarity_comment": "Outbending only -- the production. The inbending set is the detector-systematic cross-check the analysis lacks entirely (note sec:outlook); running it means flipping this key, and the run-list filter then selects the right files by itself.",
+    "inputs": [
+      "/mss/clas12/rg-d/production/pass1/recon/CxC/dst/recon/"
+    ],
+    "_inputs_comment": "A directory is scanned recursively for *.hipo; a glob or a literal file also work. /mss is tape -- SWIF2 stages each -input from tape to the node before the job runs. Use the /cache mirror instead if the files are already there. On a login node prefer `--file-list <list.dat>`: scanning 30k tape paths is slow, and the list is then a record of exactly what the production consumed.",
+    "files_per_job": 1,
+    "_files_per_job_comment": "1, matching clas-framework's scripts/swif2_pi0_skim.py -- the submitter that actually ran this skim, whose defaults are files-per-job 1, cores 1, ram 4G, disk 20G, time 4h. THE TIME LIMIT IS CALIBRATED PER FILE: raising files_per_job without raising `time` in step gives jobs that are killed at the limit. (clas-framework's general pi0.farm.toml pairs files_per_job 5 with time 16:00:00 -- the same ratio, roughly.) stageA_skim takes ONE HIPO file per invocation regardless (it exits 5 on a multi-run file), so a chunk >1 just means the job wrapper loops and writes slim_0..slim_N-1.root. Chunks never span runs.",
+    "exclude_runs": [],
+    "_exclude_runs_comment": "Runs to drop from the run list, with a stated reason, e.g. a known bad run. Empty means the run list is taken as-is. runs.json records special_DC_runs_CuSn (18358-18368) but those are inbending and are not in the outbending list anyway.",
+    "output_dir": "/volatile/clas12/users/ouillon/rgd-pi0/CxC",
+    "log_dir": "/volatile/clas12/users/ouillon/rgd-pi0/CxC/logs",
+    "_output_comment": "Slims land at <output_dir>/<run>/<job>/slim_<i>.root and logs at <log_dir>/<job>.log. SWIF2's -output does NOT create the parent directory, so the generated script mkdir -p's each one; without that the copy back is simply lost.",
+    "swif2": {
+      "workflow": "rgd_pi0_stageA_CxC_outbending",
+      "account": "clas12",
+      "partition": "production",
+      "cores": 1,
+      "_cores_comment": "stageA_skim is single-threaded (RHipoDS + a serial selection chain). Asking for more cores buys nothing and makes the job harder to schedule.",
+      "ram_gb": 4,
+      "disk_gb": 20,
+      "_disk_comment": "Must hold files_per_job staged HIPO DSTs plus their slims. A DST chunk is a few GB; the slim is ~100x smaller, so the staged inputs dominate.",
+      "time": "04:00:00",
+      "_time_comment": "Converted to SWIF2's seconds form (14400s) at synthesis. Budget ~20% over single-file wall clock x files_per_job. A malformed value is refused at parse time here, not by the scheduler after you have submitted.",
+      "constraint": "",
+      "modules": {
+        "load": [
+          "gcc/13.2.0",
+          "root/6.36.04"
+        ]
+      },
+      "_modules_comment": "An OBJECT with a `load` array, not a bare array -- a bare array parses fine and silently loads nothing, and a node without ROOT fails at runtime, not at submit.",
+      "tags": {
+        "stream": "pi0",
+        "pass": "pass1"
+      }
+    },
+    "env": {},
+    "_env_comment": "Exported in the job wrapper before the skim runs. Child of `farm`, NOT of `farm.swif2` -- this mirrors clas-framework, where the value is read from the farm table even though it is stored on the swif2 struct."
+  }
+}
