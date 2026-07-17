@@ -108,10 +108,11 @@ def _preflight(cuts_path: Path, n_jobs: int) -> list[str]:
 _NODE_VISIBLE = ("/work/", "/volatile/", "/cache/", "/home/", "/group/", "/scigroup/", "/u/")
 
 
-def _resolve_exe(exe: str) -> tuple[str, list[str]]:
+def _resolve_exe(exe: str) -> tuple[str, list[str], list[str]]:
     """Make the executable path node-usable, or explain why it is not.
 
-    Returns ``(absolute_path, problems)``.
+    Returns ``(absolute_path, problems, notes)``. ``problems`` block submission;
+    ``notes`` are things worth saying that this machine cannot decide.
 
     THE JOB'S CWD IS NOT YOUR CHECKOUT. SWIF2 runs the wrapper in a fresh scratch
     directory containing only the staged inputs, so a relative ``--exe`` such as
@@ -131,6 +132,7 @@ def _resolve_exe(exe: str) -> tuple[str, list[str]]:
     """
     p = Path(exe)
     problems: list[str] = []
+    notes: list[str] = []
     absolute = str(p if p.is_absolute() else (Path.cwd() / p).resolve())
 
     if not p.is_absolute():
@@ -149,13 +151,46 @@ def _resolve_exe(exe: str) -> tuple[str, list[str]]:
             f"      mount ({', '.join(v.rstrip('/') for v in _NODE_VISIBLE)}). Every job would exit 127.\n"
             f"      Build on /work (or another shared path) and point --exe there."
         )
-    elif not Path(absolute).is_file():
-        problems.append(
-            f"no executable at {absolute}.\n"
-            f"      It is referenced by path, not copied, so it must exist and stay put for the\n"
-            f"      lifetime of the workflow."
-        )
-    return absolute, problems
+    else:
+        # The path names a node-visible filesystem. Whether it EXISTS is only
+        # knowable if that filesystem is mounted here -- on ifarm it is, on a
+        # laptop generating a script to run later it is not. Refuse what we know
+        # is wrong; say what we cannot check rather than guessing either way.
+        root = "/" + Path(absolute).parts[1]
+        if not Path(root).is_dir():
+            notes.append(
+                f"{root} is not mounted on this machine, so whether {absolute} exists could not be\n"
+                f"      checked. The path is the right SHAPE for a worker node; that is all this can\n"
+                f"      tell you. Generating a script here to submit from ifarm is fine -- run the\n"
+                f"      same command there and this check becomes real."
+            )
+        elif not Path(absolute).is_file():
+            problems.append(
+                f"no executable at {absolute}.\n"
+                f"      It is referenced by path, not copied, so it must exist and stay put for the\n"
+                f"      lifetime of the workflow."
+            )
+    return absolute, problems, notes
+
+
+def _check_staged_paths(cuts_path: Path, scripts_dir: Path) -> list[str]:
+    """Every path SWIF2 stages by reference must be reachable from a worker node.
+
+    ``-input`` copies FROM the path you give it, at job start, on the node. So
+    cuts.json and each wrapper.sh are subject to exactly the same rule as the
+    executable: a path under /Users or /tmp is not there.
+
+    This is what makes a generated script non-portable. Generating on a laptop
+    bakes in laptop paths; the script is then readable but not submittable. On
+    ifarm the same command bakes in /work paths and is fine -- so the fix is
+    always "generate it where you will submit it", never "edit the paths".
+    """
+    bad: list[str] = []
+    for label, p in (("cuts.json (--config)", cuts_path.resolve()),
+                     ("the wrapper scripts (--scripts-dir)", scripts_dir.resolve())):
+        if not any(str(p).startswith(v) for v in _NODE_VISIBLE):
+            bad.append(f"{label}: {p}")
+    return bad
 
 
 def _grid_is_placeholder(grid_path: Path) -> bool:
@@ -256,7 +291,30 @@ def main(argv: list[str] | None = None) -> int:
     print(f"logs           : {cfg.log_dir}/<job>.log")
 
     # ---- pre-flight -----------------------------------------------------
-    exe_abs, exe_problems = _resolve_exe(args.exe)
+    exe_abs, exe_problems, exe_notes = _resolve_exe(args.exe)
+    for n in exe_notes:
+        print(f"\nnote: {n}")
+
+    # Staged paths are a blocker only for --submit. A dry run on a laptop is a
+    # legitimate way to read the script; submitting one built from laptop paths
+    # is not.
+    staged_bad = _check_staged_paths(cuts_path, args.scripts_dir)
+    if staged_bad:
+        where = "\n".join(f"        {b}" for b in staged_bad)
+        msg = (
+            "these paths are staged BY REFERENCE and are not on a filesystem the worker nodes\n"
+            "      mount, so the jobs cannot read them:\n"
+            f"{where}\n"
+            "      SWIF2 copies -input FROM these paths, on the node, at job start. A script\n"
+            "      generated here has this machine's paths baked in and is readable but NOT\n"
+            "      submittable. Generate it where you will submit it -- run the same command on\n"
+            "      ifarm from a checkout on /work. Do not edit the paths in the script."
+        )
+        if args.submit:
+            exe_problems = exe_problems + [msg]
+        else:
+            print(f"\nnote: {msg}")
+
     blockers = _preflight(cuts_path, len(chunks))
     fallback_only = not exe_problems  # --allow-rga-fallback-production forgives the GBT gap, not a bad exe
     blockers = exe_problems + blockers

@@ -542,14 +542,14 @@ def test_wrapper_one_bad_file_does_not_abandon_the_rest_of_the_chunk(tmp_path):
 
 def test_relative_exe_is_refused_with_the_resolved_path_offered():
     from pi0.batch import _resolve_exe
-    absolute, problems = _resolve_exe("./build/src/stageA_skim/stageA_skim")
+    absolute, problems, _ = _resolve_exe("./build/src/stageA_skim/stageA_skim")
     assert problems and "RELATIVE" in problems[0]
     assert Path(absolute).is_absolute()
 
 
 def test_absolute_but_node_invisible_exe_is_refused():
     from pi0.batch import _resolve_exe
-    _, problems = _resolve_exe("/tmp/build/stageA_skim")
+    _, problems, _ = _resolve_exe("/tmp/build/stageA_skim")
     assert problems and "not on a filesystem the worker nodes" in problems[0]
 
 
@@ -559,16 +559,43 @@ def test_node_visible_exe_that_exists_is_accepted(tmp_path, monkeypatch):
     fake.write_text("#!/bin/sh\n")
     fake.chmod(0o755)
     monkeypatch.setattr(batch, "_NODE_VISIBLE", (str(tmp_path) + "/",))
-    absolute, problems = batch._resolve_exe(str(fake))
-    assert problems == []
+    absolute, problems, notes = batch._resolve_exe(str(fake))
+    assert problems == [] and notes == []
     assert absolute == str(fake)
 
 
-def test_node_visible_exe_that_is_missing_is_refused(tmp_path, monkeypatch):
+def test_node_visible_exe_that_is_missing_is_refused_when_the_fs_is_mounted(tmp_path, monkeypatch):
     from pi0 import batch
     monkeypatch.setattr(batch, "_NODE_VISIBLE", (str(tmp_path) + "/",))
-    _, problems = batch._resolve_exe(str(tmp_path / "not_built_yet"))
+    _, problems, _ = batch._resolve_exe(str(tmp_path / "not_built_yet"))
     assert problems and "no executable at" in problems[0]
+
+
+def test_staged_paths_off_a_node_visible_fs_are_reported(tmp_path):
+    """cuts.json and the wrappers are staged BY REFERENCE: SWIF2 copies from those
+    paths on the node. A script generated on a laptop has laptop paths baked in."""
+    from pi0.batch import _check_staged_paths
+    bad = _check_staged_paths(tmp_path / "cuts.json", tmp_path / "batch_scripts")
+    assert len(bad) == 2
+    assert any("cuts.json" in b for b in bad)
+    assert any("wrapper" in b for b in bad)
+
+
+def test_staged_paths_on_a_node_visible_fs_are_accepted(monkeypatch, tmp_path):
+    from pi0 import batch
+    monkeypatch.setattr(batch, "_NODE_VISIBLE", (str(tmp_path) + "/",))
+    assert batch._check_staged_paths(tmp_path / "cuts.json", tmp_path / "scripts") == []
+
+
+def test_unmounted_node_fs_is_a_note_not_a_refusal():
+    """Generating a script on a laptop to submit from ifarm: /work is not mounted,
+    so existence is unknowable. Say so; do not refuse, and do not pretend to know."""
+    from pi0.batch import _resolve_exe
+    assert not Path("/work").is_dir(), "this test assumes /work is not mounted here"
+    absolute, problems, notes = _resolve_exe("/work/clas12/users/x/rgd-pi0/build/stageA_skim")
+    assert problems == []
+    assert notes and "not mounted on this machine" in notes[0]
+    assert absolute == "/work/clas12/users/x/rgd-pi0/build/stageA_skim"
 
 
 def test_wrapper_loads_modules_and_exports_env(tmp_path):

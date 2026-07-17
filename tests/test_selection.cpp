@@ -199,14 +199,28 @@ TEST_CASE("Cuts::load parses config/cuts.json and yields the documented values",
         CHECK(c.photon.gbt_pass == 1);
     }
 
-    SECTION("allow_rga_fallback is FALSE") {
-        // No GBT model exists for RG-D: the lookup table tops out at run 16772
-        // and RG-D runs start at 18305. The old code fell through to an RG-A
-        // INBENDING PASS-1 model with no warning, for every RG-D photon. In
-        // this project that fallback is opt-in and off, so an unmatched run
-        // must make the program refuse to run rather than silently substitute
-        // a model trained on the wrong polarity, run group and pass.
-        CHECK(c.photon.allow_rga_fallback == false);
+    SECTION("allow_rga_fallback is TRUE -- a decision, not a default") {
+        // CHANGED 2026-07-17. This was false, and this assertion read
+        // `== false`. No GBT model exists for RG-D -- the lookup table tops out
+        // at run 16772 and RG-D runs start at 18305 -- so with it false
+        // stageA_skim exits 3 on every RG-D run and there is no skim at all.
+        // Running the production at all means taking the RG-A INBENDING PASS-1
+        // model, and taking it makes the production A STUDY, NOT A MEASUREMENT.
+        //
+        // This assertion is a TRIPWIRE IN BOTH DIRECTIONS, which is why it is
+        // updated rather than deleted: flip the key and this test fails, and
+        // whoever flipped it reads this. Setting it back to false is the right
+        // move the day an RG-D-trained model exists -- PROVENANCE.md calls that
+        // the single highest-value fix available to the photon selection.
+        //
+        // WHAT THIS DOES NOT WEAKEN: the code's refusal is tested against a
+        // literal, not against the shipped config --
+        //   test_photonid.cpp, "select_model REFUSES an RG-D run when the
+        //   fallback is not allowed"
+        // still requires select_model(18500, 1, false) to throw. The safety
+        // property lives in the code; this key is only the policy, and every
+        // output made under it carries gbt.fallback_used = TRUE.
+        CHECK(c.photon.allow_rga_fallback == true);
     }
 
     SECTION("photon PCAL fiducial is 14.0 and the electron's is 9.0 -- NOT unified") {

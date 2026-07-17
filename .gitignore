@@ -40,3 +40,4 @@ __pycache__/
 .idea/
 *.swp
 compile_commands.json
+/batch_scripts/
