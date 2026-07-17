@@ -33,7 +33,8 @@ executable(
     pi0_config_dep,     # Cuts::load -- the grid shape, the pairing cuts, the z window
     pi0_core_dep,       # find_gg_pairs, compute_sidis, Types
     nlohmann_json_dep,  # writing the grid JSON (NOT reading a cut)
-    ROOT_dep,           # TFile, TTree, TTreeReader, TNamed
+    ROOT_dep,           # TFile, TTree, TTreeReader, TNamed, ROOT::EnableThreadSafety
+    thread_dep,         # std::thread pool for opt-in --threads sample collection (util/Progress.hpp too)
   ],
   cpp_args: [
     '-DPI0_CODE_VERSION="' + pi0_code_version + '"',

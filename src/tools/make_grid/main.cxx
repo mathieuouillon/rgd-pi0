@@ -14,7 +14,7 @@
 //   make_grid --input <slim.root> [--input <more.root> ...] --config <cuts.json>
 //             --out-a <grid_A.json> --out-b <grid_B.json>
 //             [--na 8x7] [--nb 5x5] [--max-events N]
-//             [--cap-z <v>] [--cap-pt2 <v>]
+//             [--cap-z <v>] [--cap-pt2 <v>] [--threads N]
 //
 // ---------------------------------------------------------------------------
 // WHY THIS PROGRAM EXISTS AT ALL
@@ -71,10 +71,12 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
+#include <exception>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -84,10 +86,12 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <TFile.h>
 #include <TNamed.h>
+#include <TROOT.h>
 #include <TTree.h>
 #include <TTreeReader.h>
 #include <TTreeReaderArray.h>
@@ -101,6 +105,7 @@
 #include "core/Kinematics.hpp"
 #include "core/Pairing.hpp"
 #include "core/Types.hpp"
+#include "util/Progress.hpp"
 #include "util/Sha256.hpp"
 
 // nlohmann/json is used here to WRITE a grid file, never to read a cut.
@@ -236,6 +241,13 @@ struct Args {
     std::optional<long long> max_events;
     std::optional<double> cap_z;
     std::optional<double> cap_pt2;
+    /// Worker threads for the sample-collection read. DEFAULT 1, which is
+    /// byte-for-byte the old sequential program. THE EDGES DO NOT DEPEND ON THIS:
+    /// each axis's edges are quantiles of the pooled, SORTED sample, so the order
+    /// (and therefore the thread count) in which the samples are collected cannot
+    /// change them. Threads only decide how many input files are read at once.
+    /// Ignored -- forced back to 1 -- when --max-events is given; see parse_args.
+    unsigned int threads{1};
 };
 
 void print_usage(const char* argv0) {
@@ -244,7 +256,7 @@ void print_usage(const char* argv0) {
         << "                      --config <cuts.json>\n"
         << "                      --out-a <grid_A.json> --out-b <grid_B.json>\n"
         << "                      [--na 8x7] [--nb 5x5] [--max-events N]\n"
-        << "                      [--cap-z <v>] [--cap-pt2 <v>]\n"
+        << "                      [--cap-z <v>] [--cap-pt2 <v>] [--threads N]\n"
         << "\n"
         << "  --input       a Stage A slim file. Repeat for more; the grid is computed over the\n"
         << "                union of all of them. Order does not affect the edges (they are\n"
@@ -262,6 +274,15 @@ void print_usage(const char* argv0) {
         << "                into the output so a truncated grid cannot pass for a real one.\n"
         << "  --cap-z       clamp Grid B's top z edge to this and DISCARD pi0 above it.\n"
         << "  --cap-pt2     the same for p_T^2, in GeV^2.\n"
+        << "  --threads     worker threads for reading the inputs (default 1). THE EDGES DO NOT\n"
+        << "                DEPEND ON THIS: each axis's edges are quantiles of the pooled, sorted\n"
+        << "                sample, so the order the samples are collected in -- and hence the\n"
+        << "                thread count -- cannot change them. The inputs are read one whole file\n"
+        << "                per worker, so N > 1 helps only with more than one --input (production\n"
+        << "                is thousands of slims per target). IGNORED under --max-events, which is\n"
+        << "                read strictly single-threaded so the truncation stays a deterministic\n"
+        << "                prefix of the input list. Progress goes to stderr; stdout stays the\n"
+        << "                occupancy table and edges.\n"
         << "\n"
         << "THE CAPS ARE OFF BY DEFAULT AND SHOULD USUALLY STAY OFF. See the long comment in\n"
         << "this program's source, or config/cuts.json's /binning/_cap_comment: with the\n"
@@ -345,6 +366,28 @@ void print_usage(const char* argv0) {
                     "--max-events 0 would read nothing. Omit the flag to use every event.");
             }
             a.max_events = n;
+        } else if (flag == "--threads") {
+            const std::string v = value();
+            unsigned long long n = 0;
+            try {
+                // Same '-' guard as --max-events: stoull turns "-1" into a huge
+                // positive that would spawn an absurd pool, so a typo must be
+                // refused rather than silently doing the opposite.
+                if (v.find('-') != std::string::npos) throw std::invalid_argument("negative");
+                std::size_t pos = 0;
+                n = std::stoull(v, &pos);
+                if (pos != v.size()) throw std::invalid_argument("trailing characters");
+            } catch (const std::exception&) {
+                throw std::runtime_error("--threads wants a positive integer, got \"" + v + "\"");
+            }
+            if (n == 0) {
+                throw std::runtime_error("--threads 0 is meaningless; the minimum is 1 (the default).");
+            }
+            if (n > std::numeric_limits<unsigned int>::max()) {
+                throw std::runtime_error("--threads " + v + " is absurd; the maximum is " +
+                                         std::to_string(std::numeric_limits<unsigned int>::max()) + ".");
+            }
+            a.threads = static_cast<unsigned int>(n);
         } else {
             throw std::runtime_error("unknown argument \"" + flag + "\"");
         }
@@ -391,6 +434,14 @@ struct Samples {
 ///
 /// \param budget  remaining --max-events allowance; decremented. Negative means
 ///                unlimited.
+///
+/// APPENDS TO ITS OWN `s`. Under multi-threading each worker owns a distinct
+/// Samples, filled from one whole file, and the caller concatenates them in
+/// input-index order afterwards. Because the edges are quantiles of the pooled
+/// SORTED sample, that concatenation gives an identical pooled sample -- and thus
+/// identical edges -- for any thread count, with no compensated summation and no
+/// fixed partitioning of the kind Stage B needs. This is the whole reason
+/// make_grid can be parallelised more simply than Stage B.
 void read_slim(const std::string& path, const pi0::Cuts& cuts, Samples& s, InputSummary& sum, long long& budget) {
     std::unique_ptr<TFile> f(TFile::Open(path.c_str(), "READ"));
     if (f == nullptr || f->IsZombie()) throw std::runtime_error("cannot open input: " + path);
@@ -767,20 +818,114 @@ int main(int argc, char* argv[]) {
                   << "  cap pT2    : " << (args.cap_pt2 ? std::to_string(*args.cap_pt2) : std::string("none")) << '\n';
 
         // ---- read ----------------------------------------------------------
+        // Multi-threading is OPT-IN (--threads, default 1) and READS ONE WHOLE FILE
+        // PER WORKER. It is FORCED OFF under --max-events: that flag means "N events
+        // TOTAL across all inputs", and the only cheap way to keep that a
+        // DETERMINISTIC prefix of the input list is a single shared budget consumed
+        // in input order -- the sequential loop below. Racing workers on one atomic
+        // budget would still stop at N events, but WHICH N (and so the sample, and
+        // so the edges) would depend on who won the races. Truncated grids are for
+        // smoke tests, where determinism matters more than the seconds MT would
+        // save, so this trade is free. See the --threads usage text.
+        const bool use_threads = args.threads > 1 && !args.max_events.has_value();
+
+        // Each input's samples land in its OWN slot; concatenated in input-index
+        // order afterwards, so the pooled sample -- and every edge -- is identical
+        // for any thread count (edges are quantiles of the sorted pool; order does
+        // not reach them). `read_ok[i]` records which inputs were actually read: the
+        // sequential path may stop early on the budget, leaving a tail unread.
+        std::vector<Samples> per_input(args.inputs.size());
+        std::vector<InputSummary> per_summary(args.inputs.size());
+        std::vector<char> read_ok(args.inputs.size(), 0);
+        bool truncated = false;  // set iff the budget stopped us before the last input
+
+        // Progress on STDERR only -- stdout is the result (occupancy table + edges),
+        // which may be parsed. The unit is INPUT FILES, not events: make_grid has no
+        // cheap up-front event count (unlike Stage B, whose pass 0 hands pass 1 a
+        // total for free), so an event-based bar would need a serial pre-pass that
+        // opens every input just to sum GetEntries() -- a serial O(n_files) cost
+        // that grows with the input and fights the very parallelism this adds, worst
+        // on the thousands-of-slims production runs where progress matters most. One
+        // tick per completed file needs no pre-pass, is thread-safe, and is smooth
+        // exactly when there are many files. add() is called by the reader loops.
+        pi0::Progress progress("make_grid", static_cast<std::int64_t>(args.inputs.size()), std::cerr);
+
+        if (!use_threads) {
+            // Sequential -- byte-for-byte the old program, and the ONLY path that
+            // honours --max-events. One shared budget, consumed in input order.
+            long long budget = args.max_events.value_or(-1);
+            for (std::size_t i = 0; i < args.inputs.size(); ++i) {
+                read_slim(args.inputs[i], cuts, per_input[i], per_summary[i], budget);
+                read_ok[i] = 1;
+                progress.add();
+                if (budget == 0) {
+                    truncated = i + 1 < args.inputs.size();
+                    break;
+                }
+            }
+        } else {
+            // Parallel: file-level, work-stealing over an atomic index so uneven
+            // file sizes load-balance (production is thousands of slims per target).
+            // No --max-events on this path, so every worker reads its whole file
+            // with an unlimited (negative) budget -- nothing is truncated here.
+            //
+            // ROOT's global state (TFile::Open, TClass, streamers) is made
+            // thread-safe only now that more than one file is read at once; the
+            // --threads 1 path never touches it and stays the plain sequential flow.
+            ROOT::EnableThreadSafety();
+
+            const unsigned int lanes =
+                static_cast<unsigned int>(std::min<std::size_t>(args.threads, args.inputs.size()));
+            std::atomic<std::size_t> next_input{0};
+            std::vector<std::exception_ptr> errs(args.inputs.size());
+
+            const auto worker = [&]() {
+                std::size_t i;
+                while ((i = next_input.fetch_add(1, std::memory_order_relaxed)) < args.inputs.size()) {
+                    try {
+                        long long unlimited = -1;  // a per-worker budget; never spent
+                        read_slim(args.inputs[i], cuts, per_input[i], per_summary[i], unlimited);
+                        read_ok[i] = 1;
+                        progress.add();  // thread-safe: atomic count, try_lock redraw
+                    } catch (...) {
+                        // A worker's throw must not cross the thread boundary; stash
+                        // it and rethrow on the main thread after the join.
+                        errs[i] = std::current_exception();
+                    }
+                }
+            };
+
+            std::vector<std::thread> pool;
+            pool.reserve(lanes > 0 ? lanes - 1 : 0);
+            for (unsigned int k = 1; k < lanes; ++k) pool.emplace_back(worker);
+            worker();  // this thread is a worker too
+            for (std::thread& t : pool) t.join();
+
+            for (const std::exception_ptr& e : errs) {
+                if (e) std::rethrow_exception(e);
+            }
+        }
+        progress.finish();
+
+        // Concatenate the per-input samples and gather the per-input summaries in
+        // INPUT-INDEX ORDER, so stdout and the pooled sample are deterministic and,
+        // for --threads 1, byte-identical to before. Only inputs actually read
+        // contribute -- the budget may have left a tail unread.
         Samples s;
         std::vector<InputSummary> summaries;
-        long long budget = args.max_events.value_or(-1);
-
-        for (const std::string& in : args.inputs) {
-            InputSummary sum;
-            read_slim(in, cuts, s, sum, budget);
-            std::cout << "  read " << std::setw(9) << sum.n_events_read << " events, " << std::setw(9) << sum.n_pi0
-                      << " pi0   from " << in << '\n';
-            summaries.push_back(std::move(sum));
-            if (budget == 0) {
-                std::cout << "  (--max-events reached; remaining inputs not read)\n";
-                break;
-            }
+        for (std::size_t i = 0; i < args.inputs.size(); ++i) {
+            if (!read_ok[i]) continue;
+            const Samples& p = per_input[i];
+            s.q2.insert(s.q2.end(), p.q2.begin(), p.q2.end());
+            s.xb.insert(s.xb.end(), p.xb.begin(), p.xb.end());
+            s.z.insert(s.z.end(), p.z.begin(), p.z.end());
+            s.pt2.insert(s.pt2.end(), p.pt2.begin(), p.pt2.end());
+            std::cout << "  read " << std::setw(9) << per_summary[i].n_events_read << " events, " << std::setw(9)
+                      << per_summary[i].n_pi0 << " pi0   from " << args.inputs[i] << '\n';
+            summaries.push_back(std::move(per_summary[i]));
+        }
+        if (truncated) {
+            std::cout << "  (--max-events reached; remaining inputs not read)\n";
         }
 
         // ---- the config cross-check ----------------------------------------
