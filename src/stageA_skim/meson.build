@@ -39,10 +39,11 @@ executable(
     pi0_selection_dep,  # find_trigger_electron, pass_electron, pass_photon_scored
     pi0_photonid_dep,   # CaloMap, build_features, score, select_model
     pi0_vertex_dep,     # VzCorrector: correct() + pass_window()
-    pi0_core_dep,       # compute_dis, angle_between_deg, Constants
+    pi0_core_dep,       # compute_dis, angle_between_deg, Constants, NeumaierSum/partition_*
     hipo_dep,
     HipoDataFrame_dep,  # RHipoDS
-    ROOT_dep,           # RDataFrame, TFile, TTree, TNamed, TObjString
+    ROOT_dep,           # RDataFrame, TFile, TTree, TNamed, TObjString, EnableThreadSafety
+    thread_dep,         # std::thread pool for the opt-in multi-threaded (--threads) skim; util/Progress.hpp
   ],
   cpp_args: [
     '-DPI0_VZ_PARAMS_FILE="' + vz_params_file + '"',

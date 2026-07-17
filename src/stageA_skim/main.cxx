@@ -62,6 +62,67 @@
 // stable -- at the price that EVERY column is an RVec, including the single-row
 // banks. REC_Event_helicity is RVec<short>, not short. RUN_config_run is
 // RVec<int>, not int. Read element [0] and guard for empty.
+//
+// ---------------------------------------------------------------------------
+// OPT-IN MULTI-THREADING (--threads N, DEFAULT 1) -- AND WHY ORDER IS SACRED
+// ---------------------------------------------------------------------------
+// Stage A writes a slim TTree "events". Stage B builds its donor pool by
+// RESERVOIR SAMPLING, which is a pure function of the SEQUENCE of entries in that
+// slim. So the slim -- and the three QA trees (qa_electron, qa_photon,
+// qa_electron_stages) -- must be BYTE-IDENTICAL regardless of --threads: a
+// thread-nondeterministic emission order would make the pool, and hence the
+// published mixed-event background, nondeterministic. Same philosophy as the
+// Stage B pass-1 MT that just landed (see src/stageB_bin/main.cxx): parallelise
+// the WORK, emit the OUTPUT in canonical (entry) order.
+//
+// The part we parallelise is the per-event work -- above all the GBT photon
+// scoring (CatBoost). The TTree::Fill is NOT parallelised; it is serialised on
+// purpose, because that is what fixes the emission order.
+//
+//   * --threads 1 is EXACTLY the pre-MT path: one RHipoDS + RDataFrame + Foreach
+//     that fills the trees directly, in entry order, with O(1) memory. The farm
+//     runs one thread per job across many files, so it is on this path and is
+//     entirely unaffected by everything below. Its output is byte-for-byte what
+//     the code produced before MT existed (Stage A has no floating-point
+//     reduction, unlike Stage B, so it is EXACTLY equal, not equal-to-ulp).
+//
+//   * --threads N>1 reads the events ONCE, sequentially, into an in-memory buffer
+//     (copying each event's raw columns), then SCORES them in parallel: the buffer
+//     index range [0, total) is split into a FIXED number of contiguous partitions
+//     decided by the EVENT COUNT, never by the thread count (pi0::partition_count /
+//     pi0::partition_range from core/Summation.hpp -- the same primitives Stage B
+//     uses). Each partition runs process_event() over its slice on a worker thread,
+//     appending output rows to per-partition buffers. Because a partition is a
+//     contiguous index range, its rows are already in entry order; the partitions
+//     are then filled into the trees SINGLE-THREADED, in PARTITION-INDEX ORDER, so
+//     the concatenation is the exact entry-order sequence one thread would emit.
+//     TTree::Fill is never called off the main thread.
+//
+// WHY THE READ IS SHARED, NOT PARTITIONED. The obvious design -- one RHipoDS per
+// partition, each seeking to its own entry range -- does NOT work for HIPO, and
+// this was measured, not assumed. On run 22083 the ENTIRE wall time is a FIXED,
+// one-time cost inside RHipoDS: constructing the datasource and asking it for its
+// entry ranges decompresses the whole file's record index (GetEntryRanges loads
+// every record), and it is SERIAL and PER-INSTANCE. Reading 50 events and reading
+// 4000 events from this 9.1 GB file both take ~56 s; the per-event work is in the
+// noise. So N independent readers pay that whole-file scan N times over and run N
+// times SLOWER, and RDataFrame::Range makes it worse still (it never seeks -- the
+// loop calls SetEntry for every entry in [0, end) and Range only gates the action).
+// One shared reader pays the scan once; only the cheap, embarrassingly-parallel
+// per-event scoring is threaded. On THIS smoke file that means --threads shows no
+// wall-clock win (the scan dominates and cannot be parallelised from here); on a
+// GBT-bound production run -- the RG-A fallback scoring many photons across
+// millions of events -- the parallel scoring is what pays off. Either way the
+// OUTPUT is identical, which is the property that actually matters.
+//
+// Determinism here does NOT depend on the partition COUNT (there is no sum whose
+// rounding could shift): ANY contiguous tiling filled in index order gives the
+// same bytes. The fixed, data-decided count is kept only to mirror Stage B.
+//
+// MEMORY, STATED HONESTLY. --threads N>1 buffers the raw events (O(events)) plus
+// the output rows, so it is meant for BOUNDED (--max-events) smoke runs. The farm
+// runs --threads 1, which streams and buffers nothing (O(1)). Do not point
+// --threads N>1 at a full 64M-event file.
 // ---------------------------------------------------------------------------
 
 #include <algorithm>
@@ -80,6 +141,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <ROOT/RDataFrame.hxx>
@@ -87,6 +149,7 @@
 #include <TFile.h>
 #include <TNamed.h>
 #include <TObjString.h>
+#include <TROOT.h>
 #include <TTree.h>
 
 // external/hipo-cpp is a pristine v4.4.1 checkout under a standing "DO NOT
@@ -108,12 +171,14 @@
 #include "config/Cuts.hpp"
 #include "core/Constants.hpp"
 #include "core/Kinematics.hpp"
+#include "core/Summation.hpp"
 #include "photonid/Features.hpp"
 #include "photonid/PhotonGBT.hpp"
 #include "photonid/RunRangeModelMap.hpp"
 #include "selection/ElectronSelection.hpp"
 #include "selection/PhotonSelection.hpp"
 #include "selection/SamplingFraction.hpp"
+#include "util/Progress.hpp"
 #include "util/Provenance.hpp"
 #include "util/Sha256.hpp"
 #include "vertex/VzCorrector.hpp"
@@ -150,6 +215,13 @@ using RVecF = ROOT::VecOps::RVec<float>;
 // CLI
 // ===========================================================================
 
+/// Default approximate events per partition when --threads > 1. Coarser than
+/// Stage B's 200000 because a Stage A event is far heavier (five CatBoost models),
+/// so fewer, larger partitions still keep every core busy while bounding the
+/// per-wave buffer memory. Only used for the opt-in multi-threaded path; a small
+/// --max-events smoke run wants a smaller --partition-target to expose parallelism.
+constexpr std::size_t kPartitionTargetDefault = 20000;
+
 struct Args {
     std::string input;
     std::string output;
@@ -165,6 +237,21 @@ struct Args {
     /// Second, DIAGNOSTIC-ONLY output: per-candidate pre-cut values. nullopt =
     /// not requested, and nothing about the run changes.
     std::optional<std::string> qa_ntuple;
+    /// Worker threads for the GBT scoring / read. DEFAULT 1. THE OUTPUT DOES NOT
+    /// DEPEND ON THIS: the entry range is split into a fixed number of contiguous
+    /// partitions decided by the event count, and each partition's rows are filled
+    /// into the trees in partition-index (i.e. entry) order, so the slim and the
+    /// QA trees are byte-identical for any thread count. Threads only decide how
+    /// many partitions score in parallel. --threads 1 is the pre-MT single-pass
+    /// path, exactly. See the file header for the memory/I-O caveats of N>1.
+    unsigned int threads{1};
+    /// Approximate events per partition, a TUNING knob for parallel granularity,
+    /// NOT a correctness knob: pi0::partition_count is a pure function of (event
+    /// count, this target) and never of --threads, so the output is byte-identical
+    /// across thread counts for any fixed value here. Only consulted when
+    /// --threads > 1. Lower it to expose more parallelism on a small (--max-events)
+    /// input; the default is coarse. See core/Summation.hpp.
+    std::size_t partition_target{kPartitionTargetDefault};
 };
 
 void print_usage(const char* argv0) {
@@ -172,6 +259,7 @@ void print_usage(const char* argv0) {
         << "usage: " << argv0 << " --input <file.hipo> --output <slim.root>\n"
         << "                        --config <cuts.json> --target <LD2|CxC|Cu|Sn>\n"
         << "                        [--run <N>] [--max-events <N>] [--qa-ntuple <qa.root>]\n"
+        << "                        [--threads <N>] [--partition-target <N>]\n"
         << "\n"
         << "  --input       ONE HIPO file. Entry numbering restarts per file; do not chain inputs.\n"
         << "  --output      slim ROOT file to create (overwritten if it exists).\n"
@@ -189,7 +277,22 @@ void print_usage(const char* argv0) {
         << "  --qa-ntuple   also write a DIAGNOSTIC-ONLY file of per-candidate PRE-CUT values\n"
         << "                (trees \"qa_electron\" and \"qa_photon\"), for plotting the selection\n"
         << "                and what each cut removes. Omitting it changes nothing about the\n"
-        << "                slim. Rows are CANDIDATES, not events: take no yield from it.\n";
+        << "                slim. Rows are CANDIDATES, not events: take no yield from it.\n"
+        << "  --threads     worker threads for the GBT scoring (default 1). THE OUTPUT DOES\n"
+        << "                NOT DEPEND ON THIS: the entry range is split into a fixed number of\n"
+        << "                contiguous partitions decided by the event count, and each\n"
+        << "                partition's rows are filled in entry order, so the slim and the QA\n"
+        << "                trees are byte-identical for any thread count. --threads 1 is the\n"
+        << "                pre-MT single-pass path. N>1 buffers rows and re-unpacks each\n"
+        << "                partition's lead-in, so it is for BOUNDED (--max-events) runs; the\n"
+        << "                farm uses 1. Progress goes to stderr; stdout stays the cutflow.\n"
+        << "  --partition-target\n"
+        << "                approximate events per partition when --threads > 1 (default "
+        << kPartitionTargetDefault << ").\n"
+        << "                A granularity knob, NOT a correctness knob: the partition count is\n"
+        << "                a pure function of (event count, this target) and never of the\n"
+        << "                thread count, so the output is byte-identical across --threads for\n"
+        << "                any fixed value. Lower it to expose parallelism on a small input.\n";
 }
 
 /// \throws std::runtime_error on any malformed or missing argument.
@@ -244,6 +347,41 @@ void print_usage(const char* argv0) {
             a.max_events = static_cast<unsigned int>(n);
         } else if (flag == "--qa-ntuple") {
             a.qa_ntuple = value();
+        } else if (flag == "--threads") {
+            const std::string v = value();
+            unsigned long long n = 0;
+            try {
+                // Same guards as --max-events and as stageB_bin: reject "-1"
+                // (stoull turns it into ULLONG_MAX) and trailing junk, so a typo
+                // is reported rather than silently reinterpreted.
+                if (v.find('-') != std::string::npos) throw std::invalid_argument("negative");
+                std::size_t pos = 0;
+                n = std::stoull(v, &pos);
+                if (pos != v.size()) throw std::invalid_argument("trailing characters");
+            } catch (const std::exception&) {
+                throw std::runtime_error("--threads wants a positive integer, got \"" + v + "\"");
+            }
+            if (n == 0) throw std::runtime_error("--threads 0 is meaningless; the minimum is 1 (the default).");
+            if (n > std::numeric_limits<unsigned int>::max()) {
+                throw std::runtime_error("--threads " + v + " is absurd; the maximum is " +
+                                         std::to_string(std::numeric_limits<unsigned int>::max()) + ".");
+            }
+            a.threads = static_cast<unsigned int>(n);
+        } else if (flag == "--partition-target") {
+            const std::string v = value();
+            unsigned long long n = 0;
+            try {
+                if (v.find('-') != std::string::npos) throw std::invalid_argument("negative");
+                std::size_t pos = 0;
+                n = std::stoull(v, &pos);
+                if (pos != v.size()) throw std::invalid_argument("trailing characters");
+            } catch (const std::exception&) {
+                throw std::runtime_error("--partition-target wants a positive integer, got \"" + v + "\"");
+            }
+            // partition_count() treats 0 as 1, but a user typing 0 has a typo, not
+            // an intent -- refuse rather than silently reinterpret. Same as Stage B.
+            if (n == 0) throw std::runtime_error("--partition-target 0 is meaningless; it is events per partition.");
+            a.partition_target = static_cast<std::size_t>(n);
         } else {
             throw std::runtime_error("unknown argument \"" + flag + "\"");
         }
@@ -416,6 +554,330 @@ constexpr ULong64_t kRunProbeMaxEvents = 1000;
         if (!r.empty() && r[0] != 0) return r[0];
     }
     return std::nullopt;
+}
+
+// ===========================================================================
+// THE EVENT LOGIC, FACTORED OUT SO THERE IS ONE COPY
+// ===========================================================================
+// process_event() is the SINGLE implementation of the skim's per-event work:
+// electron selection, DIS cuts, GBT photon selection, and the QA recording. Both
+// the --threads 1 path and each --threads N>1 worker call it, so the selection
+// that runs is one function, not a fast copy and a slow copy that could drift --
+// the same defect this program's header warns about for the QA values.
+//
+// It does not touch a TTree. It APPENDS finished rows to per-partition buffers and
+// bumps per-partition counters; the caller fills the trees from those buffers,
+// SINGLE-THREADED and in entry order. That split is the whole reason the output is
+// deterministic under threads: the expensive, order-independent work (scoring) is
+// what runs in parallel, and the order-defining work (Fill) never leaves one
+// thread. See the file header.
+
+/// One surviving event's slim row: exactly the branches of the "events" tree.
+struct SlimRow {
+    int b_run{};
+    std::int64_t b_event{};
+    int b_helicity{};
+    double b_q2{}, b_xb{}, b_nu{}, b_w{}, b_y{};
+    double b_ex{}, b_ey{}, b_ez{}, b_ee{};
+    std::vector<double> b_gpx, b_gpy, b_gpz, b_g_e_gamma_deg;
+};
+
+/// One trigger-electron candidate's QA row (pre-cut; rejected ones included).
+struct QaElectronRow {
+    int run{}, sector{}, failed_at{};
+    std::int64_t event{};
+    double p{}, theta_deg{}, phi_deg{};
+    double vz{}, vz_corrected{}, chi2pid{}, sf{};
+    double pcal_e{}, ecin_e{}, ecout_e{}, pcal_lv{}, pcal_lw{};
+    double dc_edge_r1{}, dc_edge_r2{}, dc_edge_r3{};
+};
+
+/// One photon candidate's QA row (pre-threshold).
+struct QaPhotonRow {
+    int run{}, prefiltered{}, passed{};
+    std::int64_t event{};
+    double e{}, theta_deg{}, phi_deg{}, gbt_score{};
+    double pcal_e{}, pcal_lv{}, pcal_lw{}, beta{};
+};
+
+/// The cutflow / provenance counters, accumulated per partition and merged after.
+/// Every field is order-independent -- integer counts and per-key sums -- so the
+/// merge is a plain add regardless of partition order (unlike Stage B's sums,
+/// which needed compensation; Stage A has none).
+struct Counters {
+    long long n_all{}, n_has_electron{}, n_electron_pass{};
+    long long n_q2{}, n_w{}, n_y{}, n_has_photon{}, n_written{};
+    long long n_run_zero{};             ///< events whose RUN::config said 0
+    long long n_qa_electron_passed{};   ///< qa_electron rows with failed_at == -1
+    std::map<std::string, long long> electron_fail;  ///< stage id -> count
+    std::map<int, long long> runs_seen;              ///< non-zero run -> events
+
+    void merge(const Counters& o) {
+        n_all += o.n_all;
+        n_has_electron += o.n_has_electron;
+        n_electron_pass += o.n_electron_pass;
+        n_q2 += o.n_q2;
+        n_w += o.n_w;
+        n_y += o.n_y;
+        n_has_photon += o.n_has_photon;
+        n_written += o.n_written;
+        n_run_zero += o.n_run_zero;
+        n_qa_electron_passed += o.n_qa_electron_passed;
+        for (const auto& [k, v] : o.electron_fail) electron_fail[k] += v;
+        for (const auto& [k, v] : o.runs_seen) runs_seen[k] += v;
+    }
+};
+
+/// One partition's output: the rows it emitted (in entry order) plus its counters.
+struct PartitionBuffers {
+    std::vector<SlimRow> slim;
+    std::vector<QaElectronRow> qa_e;
+    std::vector<QaPhotonRow> qa_g;
+    Counters cnt;
+};
+
+/// One event's raw columns, COPIED out of RHipoDS's per-event buffers so the event
+/// can be scored later, off the reader's thread. Only the --threads N>1 path uses
+/// it: the read is sequential (one shared RHipoDS -- see the header on why the read
+/// cannot be partitioned), and these buffered events are then scored in parallel.
+/// The member names and types mirror process_event()'s parameters exactly.
+struct RawEvent {
+    RVecI p_pid;
+    RVecF p_px, p_py, p_pz, p_vz, p_beta, p_chi2pid;
+    RVecS p_status;
+    RVecS c_pindex, c_layer, c_sector;
+    RVecF c_energy, c_x, c_y, c_z, c_m2u, c_m2v, c_lu, c_lv, c_lw;
+    RVecS t_pindex, t_detector, t_layer;
+    RVecF t_edge;
+    RVecS ev_helicity;
+    RVecI rc_run, rc_event;
+};
+
+/// Everything process_event() needs that is CONST for the whole run. All of it is
+/// safe to share across worker threads: the cuts and the model are immutable, and
+/// VzCorrector::correct() is documented const/thread-safe once the variant is set
+/// (which happens before any worker starts).
+struct EventContext {
+    int run{};                                  ///< the FILE's run (not this event's)
+    const pi0::Cuts* cuts{};
+    const pi0::photonid::FeatureCuts* feat_cuts{};
+    pi0::photonid::ModelFn model{};
+    const pi0::vertex::VzCorrector* vz{};
+    bool vz_corrected{};
+    const pi0::vertex::VzTargetCuts* vz_cuts{};
+    bool qa_enabled{};
+};
+
+/// Process ONE event into `buf`. A faithful move of the former Foreach lambda body
+/// -- every value written comes out of the same call the skim decides on -- with
+/// the tree Fills replaced by buffer appends and the counters made per-partition.
+void process_event(const RVecI& p_pid, const RVecF& p_px, const RVecF& p_py, const RVecF& p_pz, const RVecF& p_vz,
+                   const RVecF& p_beta, const RVecF& p_chi2pid, const RVecS& p_status,
+                   const RVecS& c_pindex, const RVecS& c_layer, const RVecS& c_sector, const RVecF& c_energy,
+                   const RVecF& c_x, const RVecF& c_y, const RVecF& c_z, const RVecF& c_m2u, const RVecF& c_m2v,
+                   const RVecF& c_lu, const RVecF& c_lv, const RVecF& c_lw,
+                   const RVecS& t_pindex, const RVecS& t_detector, const RVecS& t_layer, const RVecF& t_edge,
+                   const RVecS& ev_helicity, const RVecI& rc_run, const RVecI& rc_event,
+                   const EventContext& ctx, PartitionBuffers& buf) {
+    const pi0::Cuts& cuts = *ctx.cuts;
+    ++buf.cnt.n_all;
+
+    // Single-row banks are RVecs too. Guard for empty, always.
+    const int this_run = rc_run.empty() ? 0 : rc_run[0];
+    const std::int64_t this_event = rc_event.empty() ? 0 : static_cast<std::int64_t>(rc_event[0]);
+    if (this_run == 0) ++buf.cnt.n_run_zero; else ++buf.cnt.runs_seen[this_run];
+
+    // HELICITY IS HWP-CORRECTED ALREADY (REC::Event.helicity). 0 == UNDEFINED.
+    const int helicity = ev_helicity.empty() ? 0 : static_cast<int>(ev_helicity[0]);
+
+    // ---- trigger electron -------------------------------------
+    const auto e_row_opt = pi0::selection::find_trigger_electron(p_pid, p_status, p_px, p_py, p_pz, cuts);
+    if (!e_row_opt.has_value()) return;
+    ++buf.cnt.n_has_electron;
+    const std::size_t e = *e_row_opt;
+
+    const pi0::photonid::CaloMap calo = pi0::photonid::CaloMap::build(
+        c_pindex, c_layer, c_sector, c_energy, c_x, c_y, c_z, c_m2u, c_m2v, c_lu, c_lv, c_lw);
+
+    const double ex = p_px[e], ey = p_py[e], ez = p_pz[e];
+    const double e_p = std::sqrt(ex * ex + ey * ey + ez * ez);
+    const double e_theta_deg = theta_deg_of(ex, ey, ez);
+    const double e_phi_deg = phi_deg_of(ex, ey);
+
+    // Calorimeter quantities. A track with no ECAL row gets zeros, which fail the
+    // sampling-fraction band and the PCAL fiducial, so it is rejected either way.
+    const pi0::photonid::CaloRowData* e_calo = calo.find(e);
+    const double e_pcal_e = e_calo ? e_calo->pcal.e : 0.0;
+    const double e_ecin_e = e_calo ? e_calo->ecin.e : 0.0;
+    const double e_ecout_e = e_calo ? e_calo->ecout.e : 0.0;
+    const int e_sector = e_calo ? e_calo->pcal.sector : 0;
+    const double e_lv = e_calo ? e_calo->pcal.lv : 0.0;
+    const double e_lw = e_calo ? e_calo->pcal.lw : 0.0;
+    const double e_sf = e_p > 0.0 ? (e_pcal_e + e_ecin_e + e_ecout_e) / e_p : 0.0;
+
+    // ---- vertex ------------------------------------------------
+    // LD2 on the RAW vz; the solid targets on the corrected one (for Cu/Sn the
+    // correction IS the target assignment).
+    const double e_vz_raw = static_cast<double>(p_vz[e]);
+    const double e_vz_used =
+        ctx.vz_corrected ? ctx.vz->correct(e_vz_raw, e_p, e_theta_deg, e_phi_deg, e_sector) : e_vz_raw;
+    const bool vertex_passed = pi0::vertex::VzCorrector::pass_window(e_vz_used, *ctx.vz_cuts);
+
+    const double edge_r1 = traj_edge(t_pindex, t_detector, t_layer, t_edge, e, 6);
+    const double edge_r2 = traj_edge(t_pindex, t_detector, t_layer, t_edge, e, 18);
+    const double edge_r3 = traj_edge(t_pindex, t_detector, t_layer, t_edge, e, 36);
+
+    const auto verdict = pi0::selection::pass_electron(static_cast<double>(p_chi2pid[e]), e_p, vertex_passed,
+                                                       e_sf, e_sector, e_lv, e_lw, edge_r1, edge_r2, edge_r3,
+                                                       cuts);
+
+    // ---- QA row ------------------------------------------------
+    // Between the verdict and the return that acts on it, so rejected candidates
+    // are here. Every branch is a value pass_electron() was just handed, or the
+    // verdict it returned.
+    if (ctx.qa_enabled) {
+        QaElectronRow r;
+        r.run = ctx.run;
+        r.event = this_event;
+        r.sector = e_sector;
+        r.p = e_p;
+        r.theta_deg = e_theta_deg;
+        r.phi_deg = e_phi_deg;
+        r.vz = e_vz_raw;
+        // = vz when the target has no correction (LD2); still filled (a NaN would
+        // make "corrected" mean two things, and the provenance records which).
+        r.vz_corrected = e_vz_used;
+        r.chi2pid = static_cast<double>(p_chi2pid[e]);
+        r.sf = e_sf;
+        r.pcal_e = e_pcal_e;
+        r.ecin_e = e_ecin_e;
+        r.ecout_e = e_ecout_e;
+        r.pcal_lv = e_lv;
+        r.pcal_lw = e_lw;
+        r.dc_edge_r1 = edge_r1;
+        r.dc_edge_r2 = edge_r2;
+        r.dc_edge_r3 = edge_r3;
+        // The SAME identifier the cutflow counts, mapped to the index of the row it
+        // belongs to. -1 means it passed all six.
+        r.failed_at = pi0::selection::electron_stage_index(verdict.failed_at);
+        if (r.failed_at < 0) ++buf.cnt.n_qa_electron_passed;
+        buf.qa_e.push_back(std::move(r));
+    }
+
+    if (!verdict.passed) {
+        ++buf.cnt.electron_fail[verdict.failed_at];
+        return;
+    }
+    ++buf.cnt.n_electron_pass;
+
+    // ---- DIS ---------------------------------------------------
+    // E' = sqrt(p^2 + m_e^2): the electron mass is carried, not dropped.
+    const double ee = pi0::energy_from_p(e_p, pi0::kElectronMassGeV);
+    const pi0::DisKin dis = pi0::kin::compute_dis(ex, ey, ez, ee, cuts.beam.energy_gev);
+
+    if (!(dis.q2 > cuts.dis.q2_min)) return;
+    ++buf.cnt.n_q2;
+    if (!(dis.w > cuts.dis.w_min)) return;
+    ++buf.cnt.n_w;
+    if (!(dis.y < cuts.dis.y_max)) return;
+    ++buf.cnt.n_y;
+
+    // ---- photons ------------------------------------------------
+    std::vector<double> gpx, gpy, gpz, g_e_gamma_deg;
+
+    const std::size_t n_rows = std::min({p_pid.size(), p_px.size(), p_py.size(), p_pz.size(), p_beta.size()});
+    for (std::size_t r = 0; r < n_rows; ++r) {
+        if (p_pid[r] != pi0::selection::kPdgPhoton) continue;
+
+        const pi0::photonid::CaloRowData* g_calo = calo.find(r);
+        // No ECAL row -> PCAL energy 0 -> the pre-filter's E_PCAL > 0 rejects it and
+        // score_fn is never invoked, which is what keeps build_features() from ever
+        // seeing a row with no calorimeter data (it throws for one).
+        const double g_pcal_e = g_calo ? g_calo->pcal.e : 0.0;
+        const double g_lv = g_calo ? g_calo->pcal.lv : 0.0;
+        const double g_lw = g_calo ? g_calo->pcal.lw : 0.0;
+
+        const double gx = p_px[r], gy = p_py[r], gz = p_pz[r];
+
+        // MOST CLUSTERS HAVE NO SCORE, AND THAT IS NOT A GAP TO FILL. The pre-filter
+        // runs before the callable, so for anything it rejects the GBT is never
+        // evaluated and no score exists. The QA row says so with prefiltered == 1
+        // and a NaN, rather than a 0 (a legal score).
+        double g_score = std::numeric_limits<double>::quiet_NaN();
+        bool g_scored = false;
+
+        // The scored overload, not the eager one: the GBT is the expensive part,
+        // and the pre-filter exists precisely so it is not evaluated on most
+        // clusters. This is what --threads parallelises.
+        const bool ok = pi0::selection::pass_photon_scored(
+            p_pid[r], gx, gy, gz, g_pcal_e, g_lv, g_lw, static_cast<double>(p_beta[r]),
+            [&]() {
+                const std::vector<float> feats =
+                    pi0::photonid::build_features(r, calo, p_pid, p_px, p_py, p_pz, *ctx.feat_cuts);
+                g_score = pi0::photonid::score(feats, ctx.model);
+                g_scored = true;
+                return g_score;
+            },
+            cuts);
+
+        // ---- QA row ---------------------------------------------
+        // Before the `continue`, so rejected candidates are here.
+        if (ctx.qa_enabled) {
+            QaPhotonRow r_g;
+            r_g.run = ctx.run;
+            r_g.event = this_event;
+            // The selection's OWN energy and angle, not a second sqrt and acos.
+            r_g.e = pi0::selection::photon_energy_gev(gx, gy, gz);
+            r_g.theta_deg = pi0::selection::photon_theta_deg(gx, gy, gz);
+            // phi is the one branch no cut reads; carried because a fiducial map is
+            // drawn in (theta, phi) and this file exists to be plotted.
+            r_g.phi_deg = phi_deg_of(gx, gy);
+            r_g.gbt_score = g_score;
+            r_g.pcal_e = g_pcal_e;
+            r_g.pcal_lv = g_lv;
+            r_g.pcal_lw = g_lw;
+            r_g.beta = static_cast<double>(p_beta[r]);
+            r_g.prefiltered = g_scored ? 0 : 1;
+            r_g.passed = ok ? 1 : 0;
+            buf.qa_g.push_back(std::move(r_g));
+        }
+
+        if (!ok) continue;
+
+        gpx.push_back(gx);
+        gpy.push_back(gy);
+        gpz.push_back(gz);
+        // Precomputed here so the pairing stage never needs the electron again.
+        g_e_gamma_deg.push_back(pi0::kin::angle_between_deg(gx, gy, gz, ex, ey, ez));
+    }
+
+    // >= 1, NOT >= 2 -- single-photon events feed the mixed-event donor pool.
+    if (gpx.empty()) return;
+    ++buf.cnt.n_has_photon;
+
+    // The FILE's run, not this_run. They differ only when RUN::config was unfilled
+    // for this event (this_run == 0), and a 0 in the run branch is a landmine for
+    // every downstream per-run normalisation. The single-run check after the loop
+    // licenses the substitution; n_run_zero records it.
+    SlimRow row;
+    row.b_run = ctx.run;
+    row.b_event = this_event;
+    row.b_helicity = helicity;
+    row.b_q2 = dis.q2;
+    row.b_xb = dis.xb;
+    row.b_nu = dis.nu;
+    row.b_w = dis.w;
+    row.b_y = dis.y;
+    row.b_ex = ex;
+    row.b_ey = ey;
+    row.b_ez = ez;
+    row.b_ee = ee;
+    row.b_gpx = std::move(gpx);
+    row.b_gpy = std::move(gpy);
+    row.b_gpz = std::move(gpz);
+    row.b_g_e_gamma_deg = std::move(g_e_gamma_deg);
+    buf.slim.push_back(std::move(row));
+    ++buf.cnt.n_written;
 }
 
 }  // namespace
@@ -595,9 +1057,9 @@ int main(int argc, char* argv[]) {
         double qg_e = 0, qg_theta_deg = 0, qg_phi_deg = 0, qg_gbt_score = 0;
         double qg_pcal_e = 0, qg_pcal_lv = 0, qg_pcal_lw = 0, qg_beta = 0;
 
-        // Counted independently of n_electron_pass so the two can be checked
-        // against each other after the loop. See the check there.
-        long long n_qa_electron_passed = 0;
+        // qa_electron rows with failed_at == -1 are counted (in Counters, per
+        // partition, by process_event) independently of n_electron_pass, so the two
+        // can be checked against each other after the loop. See the check there.
 
         if (args.qa_ntuple.has_value()) {
             // Opened here, before the loop, for the same reason the slim is: a
@@ -730,301 +1192,275 @@ int main(int argc, char* argv[]) {
         const pi0::photonid::FeatureCuts feat_cuts{cuts.photon.min_energy_gev, cuts.photon.theta_min_deg,
                                                    cuts.photon.theta_max_deg};
 
-        // ---- counters ------------------------------------------------------
-        long long n_all = 0, n_has_electron = 0, n_electron_pass = 0;
-        long long n_q2 = 0, n_w = 0, n_y = 0, n_has_photon = 0, n_written = 0;
-        std::map<std::string, long long> electron_fail;  // stage id -> count
+        // ---- entry count and progress -------------------------------------
+        // The total the loop will visit: the file's tag-0 entry count, capped by
+        // --max-events. Queried from a throwaway RHipoDS so the datasource feeding
+        // `df` (and each worker's own) is untouched. It is the progress bar's
+        // denominator and, when --threads > 1, the span the partitions tile.
+        unsigned long file_entries = 0;
+        {
+            auto probe_ds = std::make_unique<RHipoDS>(args.input, 0);
+            file_entries = probe_ds->GetEntries();
+        }
+        const std::size_t total_entries =
+            args.max_events.has_value()
+                ? std::min<std::size_t>(static_cast<std::size_t>(file_entries), *args.max_events)
+                : static_cast<std::size_t>(file_entries);
 
-        // The single-run check the probe cannot do. The GBT model is chosen ONCE
-        // per file, which is only meaningful if the file holds one run -- so that
-        // assumption gets verified rather than trusted. Free here: the loop reads
-        // RUN_config_run for every event anyway.
-        std::map<int, long long> runs_seen;   // non-zero run -> events
-        long long n_run_zero = 0;             // events whose RUN::config says 0
+        // The read-only context every event needs. All of it is safe to share
+        // across worker threads: cuts and model are immutable, and
+        // VzCorrector::correct() is const/thread-safe once the variant is set
+        // (which happened above, before any worker exists).
+        EventContext ctx;
+        ctx.run = run;
+        ctx.cuts = &cuts;
+        ctx.feat_cuts = &feat_cuts;
+        ctx.model = model;
+        ctx.vz = &vz;
+        ctx.vz_corrected = vz_corrected;
+        ctx.vz_cuts = &vz_cuts;
+        ctx.qa_enabled = args.qa_ntuple.has_value();
+
+        // ---- the trees are filled HERE, single-threaded, in entry order ------
+        // These take a finished row and Fill the corresponding tree. They are the
+        // ONLY callers of TTree::Fill, and only the main thread ever runs them, so
+        // the "Fill is not thread-safe" hazard never arises for any --threads.
+        auto fill_slim = [&](const SlimRow& r) {
+            b_run = r.b_run;
+            b_event = r.b_event;
+            b_helicity = r.b_helicity;
+            b_q2 = r.b_q2;
+            b_xb = r.b_xb;
+            b_nu = r.b_nu;
+            b_w = r.b_w;
+            b_y = r.b_y;
+            b_ex = r.b_ex;
+            b_ey = r.b_ey;
+            b_ez = r.b_ez;
+            b_ee = r.b_ee;
+            b_gpx = r.b_gpx;
+            b_gpy = r.b_gpy;
+            b_gpz = r.b_gpz;
+            b_g_e_gamma_deg = r.b_g_e_gamma_deg;
+            tree->Fill();
+        };
+        auto fill_qa_e = [&](const QaElectronRow& r) {
+            qe_run = r.run;
+            qe_event = r.event;
+            qe_sector = r.sector;
+            qe_p = r.p;
+            qe_theta_deg = r.theta_deg;
+            qe_phi_deg = r.phi_deg;
+            qe_vz = r.vz;
+            qe_vz_corrected = r.vz_corrected;
+            qe_chi2pid = r.chi2pid;
+            qe_sf = r.sf;
+            qe_pcal_e = r.pcal_e;
+            qe_ecin_e = r.ecin_e;
+            qe_ecout_e = r.ecout_e;
+            qe_pcal_lv = r.pcal_lv;
+            qe_pcal_lw = r.pcal_lw;
+            qe_dc_edge_r1 = r.dc_edge_r1;
+            qe_dc_edge_r2 = r.dc_edge_r2;
+            qe_dc_edge_r3 = r.dc_edge_r3;
+            qe_failed_at = r.failed_at;
+            qa_e_tree->Fill();
+        };
+        auto fill_qa_g = [&](const QaPhotonRow& r) {
+            qg_run = r.run;
+            qg_event = r.event;
+            qg_e = r.e;
+            qg_theta_deg = r.theta_deg;
+            qg_phi_deg = r.phi_deg;
+            qg_gbt_score = r.gbt_score;
+            qg_pcal_e = r.pcal_e;
+            qg_pcal_lv = r.pcal_lv;
+            qg_pcal_lw = r.pcal_lw;
+            qg_beta = r.beta;
+            qg_prefiltered = r.prefiltered;
+            qg_passed = r.passed;
+            qa_g_tree->Fill();
+        };
+        // Drain one partition's buffered rows into the trees, in entry order.
+        // Called in partition-index order, so the whole file is filled in entry
+        // order -- which is the byte-for-byte identity the slim's downstream pool
+        // depends on.
+        auto drain = [&](PartitionBuffers& b) {
+            for (const SlimRow& r : b.slim) fill_slim(r);
+            if (qa_e_tree != nullptr)
+                for (const QaElectronRow& r : b.qa_e) fill_qa_e(r);
+            if (qa_g_tree != nullptr)
+                for (const QaPhotonRow& r : b.qa_g) fill_qa_g(r);
+        };
+
+        // Progress on STDERR (stdout carries the cutflow and provenance). The bar
+        // is TTY-aware and thread-safe, so every worker may call add() concurrently.
+        pi0::Progress progress("stageA skim", static_cast<std::int64_t>(total_entries), std::cerr);
+
+        const unsigned int n_threads = std::max(1u, args.threads);
+
+        // The counters this run produced, filled by whichever path runs below.
+        Counters counters;
 
         // ---- the event loop -------------------------------------------------
-        // --max-events is applied as an RDataFrame Range, i.e. the first N tag-0
-        // entries -- a PREFIX of the file, not a sample of it. Fine for a smoke
-        // test, which is what it is for; not a physics-representative subset,
-        // which is why n_all, the cutflow's first row and the provenance all say
-        // so rather than leaving the reader to notice.
-        //
-        // Range is single-thread only. This program never enables implicit MT,
-        // so that costs nothing here -- but it is why this is a Range and not a
-        // counter-and-break inside the lambda (which RDataFrame has no way to
-        // honour) or an early return (which would still read the whole file).
-        ROOT::RDF::RNode node = df;
-        if (args.max_events.has_value()) node = node.Range(0u, *args.max_events);
+        // --max-events is a PREFIX of the file (the first N tag-0 entries), not a
+        // sample; that is why n_all, the cutflow's first row and the provenance all
+        // say so. The output is IDENTICAL across --threads: the two paths below emit
+        // exactly the same rows in exactly entry order.
+        if (n_threads == 1) {
+            // ---- the pre-MT single-pass path (this is the farm path) ---------
+            // One RHipoDS + RDataFrame + Foreach filling the trees directly, in
+            // entry order, with O(1) buffering (the per-event scratch is drained and
+            // cleared each event). Byte-for-byte what this program did before MT.
+            // Range is single-thread only, which is exactly this path.
+            ROOT::RDF::RNode node = df;
+            if (args.max_events.has_value()) node = node.Range(0u, *args.max_events);
 
-        node.Foreach(
-            [&](const RVecI& p_pid, const RVecF& p_px, const RVecF& p_py, const RVecF& p_pz, const RVecF& p_vz,
-                const RVecF& p_beta, const RVecF& p_chi2pid, const RVecS& p_status,
-                const RVecS& c_pindex, const RVecS& c_layer, const RVecS& c_sector, const RVecF& c_energy,
-                const RVecF& c_x, const RVecF& c_y, const RVecF& c_z, const RVecF& c_m2u, const RVecF& c_m2v,
-                const RVecF& c_lu, const RVecF& c_lv, const RVecF& c_lw,
-                const RVecS& t_pindex, const RVecS& t_detector, const RVecS& t_layer, const RVecF& t_edge,
-                const RVecS& ev_helicity, const RVecI& rc_run, const RVecI& rc_event) {
-                ++n_all;
+            PartitionBuffers scratch;  // cnt accumulates across events; rows are per-event
+            node.Foreach(
+                [&](const RVecI& p_pid, const RVecF& p_px, const RVecF& p_py, const RVecF& p_pz, const RVecF& p_vz,
+                    const RVecF& p_beta, const RVecF& p_chi2pid, const RVecS& p_status,
+                    const RVecS& c_pindex, const RVecS& c_layer, const RVecS& c_sector, const RVecF& c_energy,
+                    const RVecF& c_x, const RVecF& c_y, const RVecF& c_z, const RVecF& c_m2u, const RVecF& c_m2v,
+                    const RVecF& c_lu, const RVecF& c_lv, const RVecF& c_lw,
+                    const RVecS& t_pindex, const RVecS& t_detector, const RVecS& t_layer, const RVecF& t_edge,
+                    const RVecS& ev_helicity, const RVecI& rc_run, const RVecI& rc_event) {
+                    process_event(p_pid, p_px, p_py, p_pz, p_vz, p_beta, p_chi2pid, p_status, c_pindex, c_layer,
+                                  c_sector, c_energy, c_x, c_y, c_z, c_m2u, c_m2v, c_lu, c_lv, c_lw, t_pindex,
+                                  t_detector, t_layer, t_edge, ev_helicity, rc_run, rc_event, ctx, scratch);
+                    drain(scratch);
+                    scratch.slim.clear();
+                    scratch.qa_e.clear();
+                    scratch.qa_g.clear();
+                    progress.add();
+                },
+                needed);
+            counters = std::move(scratch.cnt);
+        } else {
+            // ---- the opt-in multi-threaded path (bounded runs) ---------------
+            // Read the events ONCE, sequentially, through the one shared RHipoDS --
+            // the read cannot be partitioned across readers without paying RHipoDS's
+            // whole-file record-index scan once PER reader (see the file header) --
+            // buffering each event's raw columns. Then SCORE the buffer in parallel:
+            // a FIXED number of contiguous index-partitions decided by the event
+            // count, run in waves of `lanes` worker threads, each running
+            // process_event over its slice into its own buffers. The partitions are
+            // drained into the trees in index order, so the emission order is the
+            // single-thread entry order.
+            ROOT::EnableThreadSafety();
 
-                // Single-row banks are RVecs too. Guard for empty, always.
-                const int this_run = rc_run.empty() ? 0 : rc_run[0];
-                const std::int64_t this_event = rc_event.empty() ? 0 : static_cast<std::int64_t>(rc_event[0]);
-                if (this_run == 0) ++n_run_zero; else ++runs_seen[this_run];
+            // ---- phase 1: sequential read into the raw-event buffer ----------
+            // The same Foreach the --threads 1 path runs, but instead of scoring it
+            // COPIES each event's columns out of RHipoDS's per-event buffers so they
+            // survive past the callback. progress tracks this read: on a HIPO-scan-
+            // bound file this is where the wall time goes.
+            std::vector<RawEvent> raw;
+            raw.reserve(total_entries);
+            {
+                ROOT::RDF::RNode node = df;
+                if (args.max_events.has_value()) node = node.Range(0u, *args.max_events);
+                node.Foreach(
+                    [&](const RVecI& p_pid, const RVecF& p_px, const RVecF& p_py, const RVecF& p_pz,
+                        const RVecF& p_vz, const RVecF& p_beta, const RVecF& p_chi2pid, const RVecS& p_status,
+                        const RVecS& c_pindex, const RVecS& c_layer, const RVecS& c_sector, const RVecF& c_energy,
+                        const RVecF& c_x, const RVecF& c_y, const RVecF& c_z, const RVecF& c_m2u, const RVecF& c_m2v,
+                        const RVecF& c_lu, const RVecF& c_lv, const RVecF& c_lw,
+                        const RVecS& t_pindex, const RVecS& t_detector, const RVecS& t_layer, const RVecF& t_edge,
+                        const RVecS& ev_helicity, const RVecI& rc_run, const RVecI& rc_event) {
+                        raw.push_back(RawEvent{p_pid, p_px, p_py, p_pz, p_vz, p_beta, p_chi2pid, p_status, c_pindex,
+                                               c_layer, c_sector, c_energy, c_x, c_y, c_z, c_m2u, c_m2v, c_lu, c_lv,
+                                               c_lw, t_pindex, t_detector, t_layer, t_edge, ev_helicity, rc_run,
+                                               rc_event});
+                        progress.add();
+                    },
+                    needed);
+            }
 
-                // HELICITY IS HWP-CORRECTED ALREADY -- nothing here needs to fix it.
-                //
-                // REC::Event carries TWO fields, and the CLAS12 bank definition
-                // (data/bankdefs/hipo4/data.json) is explicit about the difference:
-                //   helicity    -> "online-delay-corrected helicity, WITH HWP-correction (0=UDF)"
-                //   helicityRaw -> "online-delay-corrected helicity (0=UDF)"
-                // We read REC_Event_helicity, i.e. the CORRECTED one. The half-wave
-                // plate state is per-run RCDB data applied UPSTREAM by the cooking
-                // and already folded into this field, so an analysis reading
-                // `helicity` (rather than `helicityRaw`) needs no HWP table of its
-                // own. The superseded code did exactly the same thing, and its
-                // "HWP-corrected" doc-comment was accurate, not stale.
-                //
-                // What IS true is that this makes the sign an INHERITED assumption:
-                // it is only as good as the cooking's HWP bookkeeping, and no
-                // HWP-in/HWP-out closure test exists anywhere in this chain. Worth
-                // settling before publishing a SIGNED asymmetry -- but not a reason
-                // to touch the value here.
-                //
-                // helicity == 0 means UNDEFINED; it is dropped downstream rather
-                // than treated as a state.
-                const int helicity = ev_helicity.empty() ? 0 : static_cast<int>(ev_helicity[0]);
+            // ---- phase 2 + 3: score in parallel, fill in index order ---------
+            const std::size_t n_events = raw.size();
+            const std::size_t n_part = pi0::partition_count(n_events, args.partition_target);
+            const unsigned int lanes = static_cast<unsigned int>(std::min<std::size_t>(n_threads, n_part));
 
-                // ---- trigger electron -------------------------------------
-                const auto e_row_opt = pi0::selection::find_trigger_electron(p_pid, p_status, p_px, p_py, p_pz, cuts);
-                if (!e_row_opt.has_value()) return;
-                ++n_has_electron;
-                const std::size_t e = *e_row_opt;
+            std::cout << "  threads    : " << n_threads << "  (" << n_part << " data-decided partition(s) over "
+                      << n_events << " buffered event(s); output is deterministic, byte-identical to --threads 1)\n";
 
-                const pi0::photonid::CaloMap calo = pi0::photonid::CaloMap::build(
-                    c_pindex, c_layer, c_sector, c_energy, c_x, c_y, c_z, c_m2u, c_m2v, c_lu, c_lv, c_lw);
-
-                const double ex = p_px[e], ey = p_py[e], ez = p_pz[e];
-                const double e_p = std::sqrt(ex * ex + ey * ey + ez * ez);
-                const double e_theta_deg = theta_deg_of(ex, ey, ez);
-                const double e_phi_deg = phi_deg_of(ex, ey);
-
-                // Calorimeter quantities. A track with no ECAL row at all gets
-                // zeros: sector 0 fails the sampling-fraction band (which returns
-                // false, not throws, outside [1,6]) and lv/lw = 0 fails the PCAL
-                // fiducial, so it is rejected either way.
-                const pi0::photonid::CaloRowData* e_calo = calo.find(e);
-                const double e_pcal_e = e_calo ? e_calo->pcal.e : 0.0;
-                const double e_ecin_e = e_calo ? e_calo->ecin.e : 0.0;
-                const double e_ecout_e = e_calo ? e_calo->ecout.e : 0.0;
-                const int e_sector = e_calo ? e_calo->pcal.sector : 0;
-                const double e_lv = e_calo ? e_calo->pcal.lv : 0.0;
-                const double e_lw = e_calo ? e_calo->pcal.lw : 0.0;
-                const double e_sf = e_p > 0.0 ? (e_pcal_e + e_ecin_e + e_ecout_e) / e_p : 0.0;
-
-                // ---- vertex ------------------------------------------------
-                // LD2 is tested on the RAW vz; the solid targets on the corrected
-                // one. For Cu and Sn this is not merely a quality cut -- it is the
-                // target assignment, since the two foils differ only in v_z.
-                const double e_vz_raw = static_cast<double>(p_vz[e]);
-                const double e_vz_used =
-                    vz_corrected ? vz.correct(e_vz_raw, e_p, e_theta_deg, e_phi_deg, e_sector) : e_vz_raw;
-                const bool vertex_passed = pi0::vertex::VzCorrector::pass_window(e_vz_used, vz_cuts);
-
-                const double edge_r1 = traj_edge(t_pindex, t_detector, t_layer, t_edge, e, 6);
-                const double edge_r2 = traj_edge(t_pindex, t_detector, t_layer, t_edge, e, 18);
-                const double edge_r3 = traj_edge(t_pindex, t_detector, t_layer, t_edge, e, 36);
-
-                const auto verdict = pi0::selection::pass_electron(static_cast<double>(p_chi2pid[e]), e_p, vertex_passed,
-                                                                   e_sf, e_sector, e_lv, e_lw, edge_r1, edge_r2, edge_r3,
-                                                                   cuts);
-
-                // ---- QA row ------------------------------------------------
-                // HERE, between the verdict and the return that acts on it: one
-                // line later and the rejected candidates -- the entire point of
-                // the file -- would be the ones missing from it.
-                //
-                // Every branch is a value pass_electron() was just handed, or the
-                // verdict it returned. Nothing is recomputed for the plot, so a
-                // figure drawn from this shows the cut that ran.
-                if (qa_e_tree != nullptr) {
-                    qe_run = run;
-                    qe_event = this_event;
-                    qe_sector = e_sector;
-                    qe_p = e_p;
-                    qe_theta_deg = e_theta_deg;
-                    qe_phi_deg = e_phi_deg;
-                    qe_vz = e_vz_raw;
-                    // = vz when the target has no correction (LD2). The branch is
-                    // still filled: a NaN here would make "corrected" mean two
-                    // things, and the provenance already records which it was.
-                    qe_vz_corrected = e_vz_used;
-                    qe_chi2pid = static_cast<double>(p_chi2pid[e]);
-                    qe_sf = e_sf;
-                    qe_pcal_e = e_pcal_e;
-                    qe_ecin_e = e_ecin_e;
-                    qe_ecout_e = e_ecout_e;
-                    qe_pcal_lv = e_lv;
-                    qe_pcal_lw = e_lw;
-                    qe_dc_edge_r1 = edge_r1;
-                    qe_dc_edge_r2 = edge_r2;
-                    qe_dc_edge_r3 = edge_r3;
-                    // The SAME identifier the cutflow counts, mapped to the index
-                    // of the row it belongs to. Not a second enumeration of the
-                    // cuts -- see electron_stage_index().
-                    qe_failed_at = pi0::selection::electron_stage_index(verdict.failed_at);
-                    if (qe_failed_at < 0) ++n_qa_electron_passed;
-                    qa_e_tree->Fill();
+            // Score ONE partition's contiguous slice of the raw buffer into `out`.
+            // Pure computation over already-read events -- no ROOT, no RHipoDS, and
+            // no shared mutable state except `out` -- so it parallelises cleanly.
+            auto run_partition = [&](std::size_t part_idx, PartitionBuffers& out) {
+                const pi0::PartitionRange pr = pi0::partition_range(part_idx, n_part, n_events);
+                for (std::size_t i = pr.begin; i < pr.end; ++i) {
+                    const RawEvent& e = raw[i];
+                    process_event(e.p_pid, e.p_px, e.p_py, e.p_pz, e.p_vz, e.p_beta, e.p_chi2pid, e.p_status,
+                                  e.c_pindex, e.c_layer, e.c_sector, e.c_energy, e.c_x, e.c_y, e.c_z, e.c_m2u,
+                                  e.c_m2v, e.c_lu, e.c_lv, e.c_lw, e.t_pindex, e.t_detector, e.t_layer, e.t_edge,
+                                  e.ev_helicity, e.rc_run, e.rc_event, ctx, out);
                 }
+            };
 
-                if (!verdict.passed) {
-                    ++electron_fail[verdict.failed_at];
-                    return;
-                }
-                ++n_electron_pass;
+            for (std::size_t wave_start = 0; wave_start < n_part; wave_start += lanes) {
+                const std::size_t wave_end = std::min<std::size_t>(wave_start + lanes, n_part);
+                const std::size_t wcount = wave_end - wave_start;
 
-                // ---- DIS ---------------------------------------------------
-                // E' = sqrt(p^2 + m_e^2). The electron mass is carried, not
-                // dropped -- which is what the old code did too. The difference
-                // from the massless E' = |p| is m_e^2/(2p) ~ 2.6e-8 GeV at
-                // p = 5 GeV, i.e. a relative ~5e-9 on Q2: far below the
-                // resolution these cuts are drawn against, and it changes no
-                // event's verdict at q2_min = 1. It is here because it is free
-                // and because "E'" should mean the electron's energy rather
-                // than an approximation to it. tests/test_core.cpp pins the
-                // size of the shift so the change is auditable rather than
-                // invisible.
-                //
-                // NOTE what this does NOT make exact: compute_dis still forms
-                // Q2 by the angle form 4*E*E'*sin^2(theta/2), which is itself
-                // the massless-electron expression (cuts.json's /dis block says
-                // so). Carrying m_e in E' does not turn it into -(k-k')^2.
-                // Photons stay massless by convention: E_gamma = |p_gamma|.
-                const double ee = pi0::energy_from_p(e_p, pi0::kElectronMassGeV);
-                const pi0::DisKin dis = pi0::kin::compute_dis(ex, ey, ez, ee, cuts.beam.energy_gev);
+                std::vector<PartitionBuffers> parts(wcount);
+                // A worker's throw must not cross the thread boundary; capture it and
+                // rethrow on this thread after the join.
+                std::vector<std::exception_ptr> errs(wcount);
 
-                if (!(dis.q2 > cuts.dis.q2_min)) return;
-                ++n_q2;
-                if (!(dis.w > cuts.dis.w_min)) return;
-                ++n_w;
-                if (!(dis.y < cuts.dis.y_max)) return;
-                ++n_y;
-
-                // ---- photons ------------------------------------------------
-                b_gpx.clear();
-                b_gpy.clear();
-                b_gpz.clear();
-                b_g_e_gamma_deg.clear();
-
-                const std::size_t n_rows = std::min({p_pid.size(), p_px.size(), p_py.size(), p_pz.size(), p_beta.size()});
-                for (std::size_t r = 0; r < n_rows; ++r) {
-                    if (p_pid[r] != pi0::selection::kPdgPhoton) continue;
-
-                    const pi0::photonid::CaloRowData* g_calo = calo.find(r);
-                    // No ECAL row -> PCAL energy 0 -> the pre-filter's E_PCAL > 0
-                    // rejects it, and score_fn is never invoked. That matters:
-                    // build_features() throws for a row with no calorimeter data,
-                    // and this is what keeps it from ever seeing one.
-                    const double g_pcal_e = g_calo ? g_calo->pcal.e : 0.0;
-                    const double g_lv = g_calo ? g_calo->pcal.lv : 0.0;
-                    const double g_lw = g_calo ? g_calo->pcal.lw : 0.0;
-
-                    const double gx = p_px[r], gy = p_py[r], gz = p_pz[r];
-
-                    // MOST CLUSTERS HAVE NO SCORE, AND THAT IS NOT A GAP TO FILL.
-                    // The pre-filter runs before the callable, so for anything it
-                    // rejects the GBT is never evaluated and no score exists. The
-                    // QA row says so with prefiltered == 1 and a NaN, rather than
-                    // a 0 -- which is a legal score, and would read as "the
-                    // classifier was certain this was not a photon" instead of
-                    // "the classifier was never asked". Forcing the GBT to run on
-                    // everything just to fill the column would change what this
-                    // program costs in order to describe what it does.
-                    double g_score = std::numeric_limits<double>::quiet_NaN();
-                    bool g_scored = false;
-
-                    // The scored overload, not the eager one: the GBT is the
-                    // expensive part of this program, and the pre-filter exists
-                    // precisely so it is not evaluated on most clusters.
-                    const bool ok = pi0::selection::pass_photon_scored(
-                        p_pid[r], gx, gy, gz, g_pcal_e, g_lv, g_lw, static_cast<double>(p_beta[r]),
-                        [&]() {
-                            const std::vector<float> feats =
-                                pi0::photonid::build_features(r, calo, p_pid, p_px, p_py, p_pz, feat_cuts);
-                            // Captured, not returned twice: this is the number the
-                            // threshold is about to be applied to, so recording it
-                            // here is recording the cut rather than modelling it.
-                            g_score = pi0::photonid::score(feats, model);
-                            g_scored = true;
-                            return g_score;
-                        },
-                        cuts);
-
-                    // ---- QA row ---------------------------------------------
-                    // Before the `continue`, so the rejected candidates are here.
-                    if (qa_g_tree != nullptr) {
-                        qg_run = run;
-                        qg_event = this_event;
-                        // The selection's OWN energy and angle, not a second sqrt
-                        // and a second acos that agree today.
-                        qg_e = pi0::selection::photon_energy_gev(gx, gy, gz);
-                        qg_theta_deg = pi0::selection::photon_theta_deg(gx, gy, gz);
-                        // phi is the one branch here no cut reads: the photon
-                        // selection has no azimuthal term. It is carried because a
-                        // fiducial map is drawn in (theta, phi) and this file
-                        // exists to be plotted.
-                        qg_phi_deg = phi_deg_of(gx, gy);
-                        qg_gbt_score = g_score;
-                        qg_pcal_e = g_pcal_e;
-                        qg_pcal_lv = g_lv;
-                        qg_pcal_lw = g_lw;
-                        qg_beta = static_cast<double>(p_beta[r]);
-                        qg_prefiltered = g_scored ? 0 : 1;
-                        qg_passed = ok ? 1 : 0;
-                        qa_g_tree->Fill();
+                if (wcount == 1) {
+                    // Single lane -- the tail wave, or a --threads that resolved to
+                    // one lane. Run inline; no std::thread.
+                    try {
+                        run_partition(wave_start, parts[0]);
+                    } catch (...) {
+                        errs[0] = std::current_exception();
                     }
-
-                    if (!ok) continue;
-
-                    b_gpx.push_back(gx);
-                    b_gpy.push_back(gy);
-                    b_gpz.push_back(gz);
-                    // Precomputed HERE so that the pairing stage never needs the
-                    // electron again: it is the only thing the e-gamma angle cut
-                    // needs from it, and a slim file that carried the electron
-                    // just for this would invite recomputing it inconsistently.
-                    b_g_e_gamma_deg.push_back(pi0::kin::angle_between_deg(gx, gy, gz, ex, ey, ez));
+                } else {
+                    std::vector<std::thread> workers;
+                    workers.reserve(wcount);
+                    for (std::size_t k = 0; k < wcount; ++k) {
+                        const std::size_t part_idx = wave_start + k;
+                        workers.emplace_back([&, k, part_idx]() {
+                            try {
+                                run_partition(part_idx, parts[k]);
+                            } catch (...) {
+                                errs[k] = std::current_exception();
+                            }
+                        });
+                    }
+                    for (std::thread& t : workers) t.join();
                 }
 
-                // >= 1, NOT >= 2 -- single-photon events feed the mixed-event
-                // donor pool downstream. See the header comment.
-                if (b_gpx.empty()) return;
-                ++n_has_photon;
+                for (std::size_t k = 0; k < wcount; ++k) {
+                    if (errs[k]) std::rethrow_exception(errs[k]);
+                }
+                // INDEX ORDER: drain and merge partition wave_start, wave_start+1,
+                // ... so the trees see rows in the single-thread entry order and the
+                // counters (all order-independent) are summed.
+                for (std::size_t k = 0; k < wcount; ++k) {
+                    drain(parts[k]);
+                    counters.merge(parts[k].cnt);
+                }
+            }
+        }
+        progress.finish();
 
-                // The FILE's run, not this_run. They differ only when RUN::config
-                // was not filled for this event, in which case this_run is 0 --
-                // and a 0 in the run branch is a landmine for every downstream
-                // per-run normalisation, QA plot and file_hash mixing seed. The
-                // single-run check after the loop is what licenses this
-                // substitution: once the file is known to hold exactly one run,
-                // the file's run IS this event's run. The count of events whose
-                // bank said 0 goes into the provenance, so the substitution is
-                // recorded rather than hidden.
-                b_run = run;
-                b_event = this_event;
-                b_helicity = helicity;
-                b_q2 = dis.q2;
-                b_xb = dis.xb;
-                b_nu = dis.nu;
-                b_w = dis.w;
-                b_y = dis.y;
-                b_ex = ex;
-                b_ey = ey;
-                b_ez = ez;
-                b_ee = ee;
-                tree->Fill();
-                ++n_written;
-            },
-            needed);
+        // ---- unpack the merged counters into the names the rest of main uses ---
+        // The single-run check below reads runs_seen; the provenance and the cutflow
+        // read the rest. electron_fail stays non-const: the cutflow indexes it with
+        // operator[] (which inserts a 0 for a stage that never failed, as intended).
+        const long long n_all = counters.n_all;
+        const long long n_has_electron = counters.n_has_electron;
+        const long long n_electron_pass = counters.n_electron_pass;
+        const long long n_q2 = counters.n_q2;
+        const long long n_w = counters.n_w;
+        const long long n_y = counters.n_y;
+        const long long n_has_photon = counters.n_has_photon;
+        const long long n_written = counters.n_written;
+        const long long n_run_zero = counters.n_run_zero;
+        const long long n_qa_electron_passed = counters.n_qa_electron_passed;
+        std::map<std::string, long long>& electron_fail = counters.electron_fail;
+        const std::map<int, long long>& runs_seen = counters.runs_seen;
 
         // ---- the single-run assumption ---------------------------------------
         // Checked before ANYTHING is written. The model was selected once for the
@@ -1110,6 +1546,24 @@ int main(int argc, char* argv[]) {
                      : std::string("all (no --max-events; the whole input was read)"));
         prov.add("events.input_tag0", std::to_string(n_all));
         prov.add("events.written", std::to_string(n_written));
+        // The parallelism used, and the guarantee that it did not touch the output.
+        // Recorded so a file can be checked for the byte-identity claim after the
+        // fact: same input + config + code_version at ANY --threads gives this same
+        // slim and the same QA trees. n_threads == 1 is the farm's single-pass path.
+        {
+            const std::size_t recorded_parts =
+                (n_threads == 1) ? 1 : pi0::partition_count(total_entries, args.partition_target);
+            prov.add("compute.threads", std::to_string(n_threads));
+            prov.add("compute.partitions", std::to_string(recorded_parts) +
+                                               (n_threads == 1 ? " (single-pass path; --threads 1)"
+                                                               : " (fixed by event count, not by thread count)"));
+            prov.add("compute.output_determinism",
+                     "byte-identical regardless of --threads: the entry range is split into a fixed number of "
+                     "contiguous partitions decided by the event count, and each partition's rows are filled into "
+                     "the trees single-threaded in partition-index (entry) order. The GBT scoring parallelises; the "
+                     "emission order does not. Stage A has no floating-point reduction, so --threads 1 is EXACTLY "
+                     "the pre-MT output, not merely equal-to-ulp.");
+        }
         // Not cosmetic. These events had an unfilled RUN::config; the run branch
         // carries the file's run for them (see the fill site). Recorded so the
         // substitution is auditable and so a file where this count is large gets
