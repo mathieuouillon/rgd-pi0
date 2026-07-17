@@ -460,6 +460,117 @@ def test_wrapper_explains_exit_3(tmp_path):
     assert "allow_rga_fallback" in w
 
 
+def test_wrapper_runs_the_exe_in_a_job_dir_that_is_not_the_checkout(tmp_path):
+    """THE regression test. A SWIF2 job's CWD is a scratch dir holding only the
+    staged inputs. A relative --exe resolves to nothing there and every job exits
+    127 -- which `bash -n`, a dry run, and reading the script all miss."""
+    cfg = load_farm_config(_cfg(tmp_path))
+    job = tmp_path / "jobdir"
+    job.mkdir()
+    (job / "input_0.hipo").touch()
+    (job / "cuts.json").touch()
+
+    # A relative exe, as the old default was.
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 1, "./build/src/stageA_skim/stageA_skim"))
+    r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin"})
+    assert r.returncode == 127, "a relative exe must fail in a job dir -- that is the bug"
+
+    # An absolute exe that exists: the wrapper finds and runs it.
+    fake = tmp_path / "stageA_fake"
+    fake.write_text("#!/usr/bin/env bash\nexit 0\n")
+    fake.chmod(0o755)
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 1, str(fake)))
+    r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin"})
+    assert r.returncode == 0, f"absolute exe should run: {r.stderr}"
+
+
+def test_wrapper_propagates_the_skim_exit_code(tmp_path):
+    cfg = load_farm_config(_cfg(tmp_path))
+    job = tmp_path / "j2"
+    job.mkdir()
+    (job / "input_0.hipo").touch()
+    fake = tmp_path / "stageA_exit3"
+    fake.write_text("#!/usr/bin/env bash\nexit 3\n")
+    fake.chmod(0o755)
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 1, str(fake)))
+    r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin"})
+    assert r.returncode == 3, "SWIF2 must see the job as failed"
+    assert "allow_rga_fallback" in r.stderr, "exit 3 must explain itself"
+
+
+def test_wrapper_missing_staged_input_does_not_pass_silently(tmp_path):
+    cfg = load_farm_config(_cfg(tmp_path))
+    job = tmp_path / "j3"
+    job.mkdir()  # no input_0.hipo
+    fake = tmp_path / "stageA_ok"
+    fake.write_text("#!/usr/bin/env bash\nexit 0\n")
+    fake.chmod(0o755)
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 1, str(fake)))
+    r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin"})
+    assert r.returncode == 4
+    assert "MISSING STAGED INPUT" in r.stderr
+
+
+def test_wrapper_one_bad_file_does_not_abandon_the_rest_of_the_chunk(tmp_path):
+    """No `set -e`: file 0 failing must not skip files 1 and 2."""
+    cfg = load_farm_config(_cfg(tmp_path))
+    job = tmp_path / "j4"
+    job.mkdir()
+    for i in range(3):
+        (job / f"input_{i}.hipo").touch()
+    fake = tmp_path / "stageA_flaky"
+    # Fails on input_0, succeeds on the rest; records every file it saw.
+    fake.write_text('#!/usr/bin/env bash\necho "$2" >> seen.txt\n'
+                    '[[ "$2" == "input_0.hipo" ]] && exit 3\nexit 0\n')
+    fake.chmod(0o755)
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 3, str(fake)))
+    r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin"})
+    seen = (job / "seen.txt").read_text().split()
+    assert seen == ["input_0.hipo", "input_1.hipo", "input_2.hipo"], "all three must be attempted"
+    assert r.returncode == 3, "and the job must still report failure"
+
+
+# ---------------------------------------------------------------------------
+# Executable resolution
+# ---------------------------------------------------------------------------
+
+
+def test_relative_exe_is_refused_with_the_resolved_path_offered():
+    from pi0.batch import _resolve_exe
+    absolute, problems = _resolve_exe("./build/src/stageA_skim/stageA_skim")
+    assert problems and "RELATIVE" in problems[0]
+    assert Path(absolute).is_absolute()
+
+
+def test_absolute_but_node_invisible_exe_is_refused():
+    from pi0.batch import _resolve_exe
+    _, problems = _resolve_exe("/tmp/build/stageA_skim")
+    assert problems and "not on a filesystem the worker nodes" in problems[0]
+
+
+def test_node_visible_exe_that_exists_is_accepted(tmp_path, monkeypatch):
+    from pi0 import batch
+    fake = tmp_path / "stageA_skim"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+    monkeypatch.setattr(batch, "_NODE_VISIBLE", (str(tmp_path) + "/",))
+    absolute, problems = batch._resolve_exe(str(fake))
+    assert problems == []
+    assert absolute == str(fake)
+
+
+def test_node_visible_exe_that_is_missing_is_refused(tmp_path, monkeypatch):
+    from pi0 import batch
+    monkeypatch.setattr(batch, "_NODE_VISIBLE", (str(tmp_path) + "/",))
+    _, problems = batch._resolve_exe(str(tmp_path / "not_built_yet"))
+    assert problems and "no executable at" in problems[0]
+
+
 def test_wrapper_loads_modules_and_exports_env(tmp_path):
     p = _cfg(tmp_path)
     doc = json.loads(p.read_text())

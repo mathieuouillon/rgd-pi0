@@ -102,6 +102,62 @@ def _preflight(cuts_path: Path, n_jobs: int) -> list[str]:
     return blockers
 
 
+#: Filesystems an ifarm worker node mounts. A job's executable must live on one
+#: of these: the job's CWD is a scratch directory holding only what SWIF2 staged,
+#: and nothing else of yours is there.
+_NODE_VISIBLE = ("/work/", "/volatile/", "/cache/", "/home/", "/group/", "/scigroup/", "/u/")
+
+
+def _resolve_exe(exe: str) -> tuple[str, list[str]]:
+    """Make the executable path node-usable, or explain why it is not.
+
+    Returns ``(absolute_path, problems)``.
+
+    THE JOB'S CWD IS NOT YOUR CHECKOUT. SWIF2 runs the wrapper in a fresh scratch
+    directory containing only the staged inputs, so a relative ``--exe`` such as
+    ``./build/src/stageA_skim/stageA_skim`` resolves to nothing there and every
+    job exits 127, "No such file or directory". Found by running a generated
+    wrapper in a simulated job directory -- a syntax check cannot see it, and
+    neither can a dry run.
+
+    Absolute is necessary but not sufficient: the path must also be on a
+    filesystem the nodes mount. A build under /tmp, or on a laptop, is not.
+
+    No libraries are staged, deliberately: meson bakes an rpath into the build
+    tree, so the binary runs with no LD_LIBRARY_PATH provided the tree itself is
+    node-visible. (clas-framework's swif2_pi0_skim.py instead snapshots the exe
+    and every *.so into a frozen directory -- necessary there because it copies
+    by basename into a flat dir, which loses the rpath.)
+    """
+    p = Path(exe)
+    problems: list[str] = []
+    absolute = str(p if p.is_absolute() else (Path.cwd() / p).resolve())
+
+    if not p.is_absolute():
+        problems.append(
+            f"--exe {exe!r} is a RELATIVE path.\n"
+            f"      A SWIF2 job runs in a scratch directory holding only the staged inputs, so a\n"
+            f"      relative executable path resolves to nothing there and EVERY job exits 127.\n"
+            f"      Resolved against this cwd it would be:\n"
+            f"        {absolute}\n"
+            f"      Pass that with --exe if it is what you mean, and make sure it is on a\n"
+            f"      filesystem the worker nodes mount ({', '.join(v.rstrip('/') for v in _NODE_VISIBLE)})."
+        )
+    elif not any(absolute.startswith(v) for v in _NODE_VISIBLE):
+        problems.append(
+            f"--exe {absolute!r} is absolute, but is not on a filesystem the worker nodes\n"
+            f"      mount ({', '.join(v.rstrip('/') for v in _NODE_VISIBLE)}). Every job would exit 127.\n"
+            f"      Build on /work (or another shared path) and point --exe there."
+        )
+    elif not Path(absolute).is_file():
+        problems.append(
+            f"no executable at {absolute}.\n"
+            f"      It is referenced by path, not copied, so it must exist and stay put for the\n"
+            f"      lifetime of the workflow."
+        )
+    return absolute, problems
+
+
 def _grid_is_placeholder(grid_path: Path) -> bool:
     if not grid_path.is_file():
         return True
@@ -200,8 +256,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"logs           : {cfg.log_dir}/<job>.log")
 
     # ---- pre-flight -----------------------------------------------------
+    exe_abs, exe_problems = _resolve_exe(args.exe)
     blockers = _preflight(cuts_path, len(chunks))
-    if blockers and not args.allow_rga_fallback_production:
+    fallback_only = not exe_problems  # --allow-rga-fallback-production forgives the GBT gap, not a bad exe
+    blockers = exe_problems + blockers
+    if blockers and not (args.allow_rga_fallback_production and fallback_only):
         # Flush first: the summary above is on stdout and the refusal below is on
         # stderr, and an unflushed stdout puts the refusal before the numbers that
         # explain it.
@@ -211,8 +270,9 @@ def main(argv: list[str] | None = None) -> int:
         print("=" * 76, file=sys.stderr)
         for b in blockers:
             print(f"  * {b}", file=sys.stderr)
-        print("\nNothing was submitted. Fix the above, or pass --allow-rga-fallback-production\n"
-              "to submit anyway with the fallback stamped into every output.", file=sys.stderr)
+        print("\nNothing was submitted. Fix the above. (--allow-rga-fallback-production forgives\n"
+              "the photon-model gap; it does not forgive an executable the nodes cannot reach.)",
+              file=sys.stderr)
         return 2
 
     with cuts_path.open() as f:
@@ -234,9 +294,9 @@ def main(argv: list[str] | None = None) -> int:
     scripts_dir.mkdir(parents=True, exist_ok=True)
     for ch in chunks:
         job = f"{cfg.swif2.workflow}_{ch.name_suffix}"
-        (scripts_dir / f"{job}.wrapper.sh").write_text(stagea_wrapper(cfg, len(ch.files), args.exe))
+        (scripts_dir / f"{job}.wrapper.sh").write_text(stagea_wrapper(cfg, len(ch.files), exe_abs))
 
-    script = swif2_script(cfg, chunks, scripts_dir=scripts_dir, exe=args.exe, cuts_path=cuts_path)
+    script = swif2_script(cfg, chunks, scripts_dir=scripts_dir, exe=exe_abs, cuts_path=cuts_path)
     script_path = scripts_dir / f"{cfg.swif2.workflow}.swif2.sh"
     script_path.write_text(script)
     script_path.chmod(0o755)

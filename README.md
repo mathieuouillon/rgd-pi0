@@ -511,13 +511,31 @@ python -m pi0.batch config/farm/LD2.farm.json --submit
 | `--workflow NAME` | override `farm/swif2/workflow`. |
 | `--max-jobs N` | synthesize at most N jobs. Labelled a test submission in the output. |
 | `--scripts-dir <d>` | where wrappers + the swif2 script go (default `batch_scripts`). |
-| `--exe <path>` | `stageA_skim` **as seen on the node**. |
+| `--exe <path>` | `stageA_skim` **as seen on the node** — must be absolute and node-visible. See below. |
 | `--allow-rga-fallback-production` | submit despite the pre-flight blocker below. |
 
 The dry-run writes the wrapper scripts and the swif2 script and **nothing else** —
 unlike clas-framework's, whose dry-run performs its full snapshot copy (hundreds
 of MB, clobbering the previous workflow's frozen program dir) before it ever
 checks `--submit`.
+
+**`--exe` must be absolute and on a filesystem the nodes mount** (`/work`,
+`/volatile`, `/cache`, `/home`, `/group`, `/scigroup`, `/u`). A SWIF2 job runs in
+a scratch directory containing *only* the staged inputs, so a relative path like
+`./build/src/stageA_skim/stageA_skim` resolves to nothing there and **every job
+exits 127**. `pi0.batch` refuses both cases up front and offers you the resolved
+path. So: build on `/work`, and
+
+```sh
+python -m pi0.batch config/farm/LD2.farm.json \
+    --exe /work/clas12/users/<you>/rgd-pi0/build/src/stageA_skim/stageA_skim --submit
+```
+
+No libraries are staged, deliberately: meson bakes an rpath into the build tree,
+so the binary runs with no `LD_LIBRARY_PATH` provided the tree itself is
+node-visible. (clas-framework's `swif2_pi0_skim.py` snapshots the exe and every
+`*.so` into a frozen directory — necessary there because it copies by basename
+into a flat dir, which loses the rpath.)
 
 **The pre-flight is the most valuable thing here.** On RG-D, `stageA_skim` exits 3
 for *every* run, so a production submitted with `photon.allow_rga_fallback = false`
