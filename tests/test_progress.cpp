@@ -9,6 +9,8 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <sstream>
+#include <vector>
+#include <thread>
 #include <string>
 
 #include "util/Progress.hpp"
@@ -81,6 +83,25 @@ TEST_CASE("finish always draws the final state even if throttled", "[progress]")
     p.finish();
     CHECK_THAT(os.str(), ContainsSubstring("100%"));
     CHECK_THAT(os.str(), ContainsSubstring("10/10"));
+}
+
+TEST_CASE("concurrent add() reaches the exact total, no lost updates", "[progress]") {
+    // The regression for the fetch_add-then-store race: 8 threads each add()
+    // 10000 times must leave the count at exactly 80000, not less. The earlier
+    // add() stored a computed value that a concurrent increment could clobber,
+    // walking the displayed count backwards.
+    std::ostringstream os;
+    double t = 0.0;
+    pi0::Progress p("run", 80000, os, /*interactive=*/0, [&] { return t; });
+    std::vector<std::thread> ts;
+    for (int w = 0; w < 8; ++w) {
+        ts.emplace_back([&] {
+            for (int i = 0; i < 10000; ++i) p.add();
+        });
+    }
+    for (auto& th : ts) th.join();
+    p.finish();
+    CHECK_THAT(os.str(), Catch::Matchers::ContainsSubstring("80000/80000"));
 }
 
 TEST_CASE("add() accumulates the same as an equivalent set()", "[progress]") {

@@ -91,8 +91,21 @@ class Progress {
     Progress(const Progress&) = delete;
     Progress& operator=(const Progress&) = delete;
 
-    void add(std::int64_t n = 1) { set(done_.fetch_add(n, std::memory_order_relaxed) + n); }
+    /// Increment the count by n. Safe under concurrency: the fetch_add IS the
+    /// update, and nothing stores a computed value back -- the earlier version
+    /// did `set(fetch_add(n) + n)`, whose store could clobber a concurrent
+    /// increment and walk the displayed count BACKWARDS (observed as 22639/22648
+    /// under 8 threads). The draw reads the live atomic, so it never needs a
+    /// store. Output was never affected -- only the number on screen -- but a
+    /// progress bar that under-counts is still wrong.
+    void add(std::int64_t n = 1) {
+        done_.fetch_add(n, std::memory_order_relaxed);
+        maybe_draw(false);
+    }
 
+    /// Set the ABSOLUTE count. For a single producer that knows where it is; do
+    /// not interleave with add() from other threads (a store and a fetch_add
+    /// race by definition).
     void set(std::int64_t done) {
         done_.store(done, std::memory_order_relaxed);
         maybe_draw(false);

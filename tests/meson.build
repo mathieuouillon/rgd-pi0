@@ -76,7 +76,9 @@ test(
 test_progress_exe = executable(
   'test_progress',
   sources: files('test_progress.cpp'),
-  dependencies: [pi0_core_dep, catch2_dep],
+  # thread_dep for the concurrent-add() regression test: std::thread needs
+  # -pthread at link on Linux (the farm), even though macOS links it via libc.
+  dependencies: [pi0_core_dep, catch2_dep, thread_dep],
   install: false,
   override_options: ['warning_level=3'],
 )
