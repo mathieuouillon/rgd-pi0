@@ -554,10 +554,48 @@ With the fallback on, it submits — and says so in a way you cannot miss, becau
 every output is then stamped `gbt.fallback_used = TRUE` and the Python stage will
 refuse to publish from it.
 
-Each job stages its chunk's HIPO files from tape as `input_0.hipo …`, runs the
-skim **once per file** (`stageA_skim` takes one file per invocation), and copies
-back `slim_<i>.root` plus a log. The wrapper deliberately does **not** use
-`set -e`: one bad file must not abandon the rest of the chunk with a zero exit.
+Each job runs the skim **once per file** (`stageA_skim` takes one file per
+invocation) and copies back `slim_<i>.root` plus a log. The wrapper deliberately
+does **not** use `set -e`: one bad file must not abandon the rest of the chunk
+with a zero exit.
+
+#### Only tape is staged
+
+`-input` **copies**. Whether that is right depends entirely on where the file is:
+
+| Input | What happens | Why |
+| --- | --- | --- |
+| `/mss/…` | staged as `input_<j>.hipo` | it is on **tape** and must be brought to disk |
+| `/cache`, `/work`, `/volatile` | **not staged** — the skim opens the path directly | already a mounted cluster filesystem the worker reads |
+
+This is not a micro-optimisation. An RG-D train skim is **~200 GB**
+(`SIDIS_018431.hipo`, measured), so staging one puts a 202 GB copy into a job
+that asked for 20 GB of disk and reads 2000 events. The first real submission did
+exactly that and both jobs sat in `preparing` — SWIF2's staging state — where
+they would have stayed:
+
+```
+site_job_disk_bytes = 20000000000     ← 20 GB requested
+local               = input_0.hipo    ← a 202 GB file being copied in
+job_attempt_status  = preparing
+```
+
+`pi0.farm.job_inputs()` is the single place that decides, and both the swif2
+script and the wrapper call it, so they cannot disagree about which name a file
+has. `disk_gb` therefore only needs to cover the **outputs** unless you are
+skimming from `/mss`.
+
+#### Fast turnaround for a smoke test
+
+`priority` is the fast queue; production runs belong on `production`. Both are
+CLI overrides rather than config edits:
+
+```sh
+python -m pi0.batch config/farm/LD2.farm.json --config config \
+    --exe /work/clas12b/users/<you>/rgd-pi0/build/src/stageA_skim/stageA_skim \
+    --max-jobs 2 --max-events 2000 \
+    --partition priority --time 01:00:00 --submit
+```
 
 Monitor and retry the usual way:
 
