@@ -327,9 +327,28 @@ def fig_vz(qa: dict, cuts: dict, out: Path, stamp: str, target: str):
     fig, ax = plt.subplots(figsize=(5.6, 3.6))
     vz = qa["vz_corrected"]
     ok = qa["failed_at"] == -1
-    bins = np.linspace(float(np.percentile(vz, 0.2)) - 2, float(np.percentile(vz, 99.8)) + 2, 140)
+
+    # The window edges of ALL targets, so the axis frames the physics (the LD2
+    # peak sits near -8 cm, the foils between -9 and -2) rather than being
+    # stretched to the ~-100..+20 cm tails of misreconstructed tracks -- which is
+    # what a percentile range did, crushing every window into a sliver.
+    edges = []
+    for t in tg.values():
+        if t.get("rule") == "corrected_peaks":
+            for pk in t["peaks"]:
+                edges += [pk["mu_cm"] - t["n_sigma"] * pk["sigma_cm"],
+                          pk["mu_cm"] + t["n_sigma"] * pk["sigma_cm"]]
+        else:
+            edges += [t["vz_min_cm"], t["vz_max_cm"]]
+    lo, hi = min(edges) - 6, max(edges) + 6
+    bins = np.linspace(lo, hi, 120)
+    over = float(np.mean((vz < lo) | (vz > hi)) * 100)
+    # No clipping: hist drops out-of-range values rather than piling them into a
+    # fake bar at the edge. The tails are misreconstructed tracks; the note below
+    # records how much fell off, so nothing is hidden silently.
     ax.hist(vz[~ok], bins=bins, color=C_REJECT, alpha=0.55, label="rejected (any cut)")
     ax.hist(vz[ok], bins=bins, color=C_ACCEPT, alpha=0.85, label="accepted")
+    ax.set_xlim(lo, hi)
 
     for name, style in (("cu", "-"), ("sn", "--"), ("ld2", ":")):
         if name not in tg:
@@ -337,14 +356,17 @@ def fig_vz(qa: dict, cuts: dict, out: Path, stamp: str, target: str):
         t = tg[name]
         if t.get("rule") == "corrected_peaks":
             for pk in t["peaks"]:
-                lo = pk["mu_cm"] - t["n_sigma"] * pk["sigma_cm"]
-                hi = pk["mu_cm"] + t["n_sigma"] * pk["sigma_cm"]
-                ax.axvspan(lo, hi, color=C_BAND, alpha=0.18)
-                ax.axvline(lo, color=C_CUT, lw=1.0, ls=style)
-                ax.axvline(hi, color=C_CUT, lw=1.0, ls=style)
+                lo_e = pk["mu_cm"] - t["n_sigma"] * pk["sigma_cm"]
+                hi_e = pk["mu_cm"] + t["n_sigma"] * pk["sigma_cm"]
+                ax.axvspan(lo_e, hi_e, color=C_BAND, alpha=0.18)
+                ax.axvline(lo_e, color=C_CUT, lw=1.0, ls=style)
+                ax.axvline(hi_e, color=C_CUT, lw=1.0, ls=style)
         else:
             ax.axvline(t["vz_min_cm"], color=C_CUT, lw=1.0, ls=style)
             ax.axvline(t["vz_max_cm"], color=C_CUT, lw=1.0, ls=style)
+    if over > 0.05:
+        ax.text(0.02, 0.97, f"{over:.1f}% beyond axis (clipped)", transform=ax.transAxes,
+                fontsize=7, va="top", color="#888888")
     ax.set_xlabel("$v_z$  [cm]  (corrected where the target defines a correction)")
     ax.set_ylabel("electrons")
     ax.set_title(f"Vertex selection — target {target}")
