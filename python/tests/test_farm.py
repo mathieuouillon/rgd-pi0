@@ -599,6 +599,28 @@ def test_node_visible_exe_that_is_missing_is_refused_when_the_fs_is_mounted(tmp_
     assert problems and "no executable at" in problems[0]
 
 
+@pytest.mark.parametrize("p", [
+    "/work/clas12b/users/ouillon/rgd-pi0/build/src/stageA_skim/stageA_skim",
+    "/w/ceph24/hallb/clas12/users/ouillon/rgd-pi0/build/src/stageA_skim/stageA_skim",
+    "/volatile/clas12/ouillon/x/stageA_skim",
+    "/lustre24/expphy/volatile/clas12/ouillon/x/stageA_skim",
+    "/cache/clas12/rg-d/x/stageA_skim",
+])
+def test_the_farms_real_paths_are_node_visible(p):
+    """On ifarm the friendly names are symlinks -- /work/clas12b is
+    /w/ceph24/hallb/clas12, /volatile is /lustre24/expphy/volatile -- and
+    os.getcwd() reports the physical form. Both must pass, or the check rejects
+    the farm's own paths."""
+    from pi0.batch import _NODE_VISIBLE
+    assert any(p.startswith(v) for v in _NODE_VISIBLE), f"{p} should be node-visible"
+
+
+@pytest.mark.parametrize("p", ["/Users/me/rgd-pi0/build/stageA_skim", "/tmp/x", "/private/tmp/x"])
+def test_laptop_paths_are_not_node_visible(p):
+    from pi0.batch import _NODE_VISIBLE
+    assert not any(p.startswith(v) for v in _NODE_VISIBLE)
+
+
 def test_staged_paths_off_a_node_visible_fs_are_reported(tmp_path):
     """cuts.json and the wrappers are staged BY REFERENCE: SWIF2 copies from those
     paths on the node. A script generated on a laptop has laptop paths baked in."""

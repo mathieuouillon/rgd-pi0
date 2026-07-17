@@ -105,7 +105,25 @@ def _preflight(cuts_path: Path, n_jobs: int) -> list[str]:
 #: Filesystems an ifarm worker node mounts. A job's executable must live on one
 #: of these: the job's CWD is a scratch directory holding only what SWIF2 staged,
 #: and nothing else of yours is there.
-_NODE_VISIBLE = ("/work/", "/volatile/", "/cache/", "/home/", "/group/", "/scigroup/", "/u/")
+#: BOTH the friendly names and the physical mounts behind them, and the physical
+#: ones are not optional. On ifarm the friendly names are symlinks:
+#:
+#:     /work     -> /w/work    (and /work/clas12b -> /w/ceph24/hallb/clas12)
+#:     /volatile -> /lustre24/expphy/volatile
+#:     /cache    -> /lustre24/expphy/cache
+#:     /mss      -> /w/mss
+#:
+#: and Python's os.getcwd() always reports the PHYSICAL path, so a relative
+#: --config given from a /work checkout arrives here as /w/ceph24/... . Listing
+#: only the friendly names made this reject the farm's own paths -- and ifarm is
+#: the only place the check ever runs, since it gates --submit and swif2 exists
+#: nowhere else.
+_NODE_VISIBLE = (
+    # what a human types
+    "/work/", "/volatile/", "/cache/", "/mss/", "/home/", "/group/", "/scigroup/", "/u/",
+    # what those resolve to, and what getcwd() reports
+    "/w/", "/lustre24/",
+)
 
 
 def _resolve_exe(exe: str) -> tuple[str, list[str], list[str]]:
