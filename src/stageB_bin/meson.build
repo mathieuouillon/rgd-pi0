@@ -40,9 +40,10 @@ executable(
   sources: files('main.cxx'),
   dependencies: [
     pi0_config_dep,      # Cuts::load -- the cuts, the m_gg axis, the phi_h axis, the mixing block
-    pi0_core_dep,        # Binning::load, find_gg_pairs, admissible_pair, compute_sidis, Grid1D
+    pi0_core_dep,        # Binning::load, find_gg_pairs, admissible_pair, compute_sidis, Grid1D, NeumaierSum
     pi0_stageB_bin_dep,  # DonorPool, DonorPhoton
-    ROOT_dep,            # RDataFrame, TFile, TTree, TTreeReader, TNamed, TObjString
+    ROOT_dep,            # TFile, TTree, TChain, TTreeReader, TNamed, TObjString
+    thread_dep,          # std::thread pool for the opt-in multi-threaded pass 1; util/Progress.hpp
   ],
   cpp_args: [
     '-DPI0_CODE_VERSION="' + pi0_code_version + '"',

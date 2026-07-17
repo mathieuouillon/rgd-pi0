@@ -505,7 +505,8 @@ pi0_code_version = meson.project_version() + ' (meson project version; source tr
 #                                libraries are deliberately ignorant of each
 #                                other, so the composition happens there.
 # src/stageB_bin/meson.build may use: pi0_config_dep, pi0_core_dep,
-#                                pi0_stageB_bin_dep, ROOT_dep, pi0_code_version.
+#                                pi0_stageB_bin_dep, ROOT_dep, thread_dep,
+#                                pi0_code_version.
 #                                It builds the stageB_bin EXECUTABLE only; the
 #                                pi0_stageB_bin LIBRARY's sources are listed
 #                                above, because pi0_config depends on it and must

@@ -88,32 +88,52 @@
 //   reservoir sampling is a function of the SEQUENCE of offers, so a parallel
 //   pre-pass would make the pool depend on thread scheduling again, which is the
 //   exact defect DonorPool exists to remove.
-// PASS 1 -- RDataFrame over the same files, in the same canonical order. The pool
-//   is frozen and const, so mixing is a pure per-entry lookup with no state, no
-//   locks and no ordering.
+// PASS 1 -- a partitioned read over the same files, in the same canonical order,
+//   OPTIONALLY MULTITHREADED (--threads, default 1). The pool is frozen and const,
+//   so mixing is a pure per-entry lookup with no state, no locks and no ordering.
 //
 // Both passes read the same PREFIX of the CHAIN under --max-events -- N events in
 // total across every input, not N per file. They must: a pool built from more
 // events than were binned would be a background estimated from a sample the
 // spectra never saw. The two implementations of that truncation are independent
-// (pass 0 counts by hand through InputChain's budget_take; pass 1 hands the whole
-// chain to RDataFrame::Range, which is already chain-wide) and the p0_events ==
-// n_events check below is what keeps them in lockstep.
+// (pass 0 counts by hand through InputChain's budget_take; pass 1 partitions the
+// event count pass 0 established and reads each partition's entry range) and the
+// p0_events == n_events check below is what keeps them in lockstep.
 //
-// WHY PASS 1 IS NOT MULTITHREADED, THOUGH THE POOL WAS DESIGNED TO ALLOW IT
-// ------------------------------------------------------------------------
-// The pool is frozen, const and lock-free precisely so that this pass CAN be
-// parallel, and that door stays open. It is not opened here, because the
-// accumulators are sums of DOUBLES: with per-slot partials merged at the end, the
-// summation order depends on how the threads happened to divide the file, so
-// sum_q2 would differ in its last bits between a 4-thread and an 8-thread run.
-// Bit-reproducibility is exactly what this rewrite is about -- an analysis whose
-// binning changed between two passes over the same data is what it replaces --
-// and buying speed with a non-deterministic abscissa would be trading away the
-// one thing this program is for. Enabling MT needs a deterministic reduction
-// (fixed per-slot partition summed in slot order, or fixed-point accumulation),
-// which is a real change and is not in scope. The counts, being integers, would
-// be fine; the sums are the problem.
+// WHY PASS 1 IS NOW SAFELY MULTITHREADED (it used to be single-threaded by force)
+// ------------------------------------------------------------------------------
+// The pool was made frozen, const and lock-free precisely so that this pass COULD
+// be parallel; the one thing that had kept the door shut was that the accumulators
+// are sums of DOUBLES, and per-thread partials merged at the end would make the
+// summation order -- and so sum_q2's last bits -- depend on how the threads
+// happened to divide the file. Bit-reproducibility of the abscissa is the one
+// thing this stage is for, so speed could not be bought with a non-deterministic
+// reduction.
+//
+// core/Summation.hpp removes exactly that obstacle, and the mechanism is what
+// makes MT safe here:
+//   * the event stream is split into a FIXED number of partitions decided ONLY by
+//     the event count (pi0::partition_count over p0_events), NEVER by the thread
+//     count;
+//   * each partition accumulates its own per-cell partial over its contiguous
+//     entry range [begin, end), IN ENTRY ORDER, using pi0::NeumaierSum (a
+//     compensated accumulator) for every double sum;
+//   * the partition partials are merged in PARTITION-INDEX ORDER via
+//     NeumaierSum::merge, which carries each partial's compensation rather than
+//     rounding it back into one term.
+// A sum therefore never crosses a partition boundary, and the partition structure
+// is a pure function of the data, so sum_q2/xb/z/pt2 (and ptb's sum_pt2/pt4) are
+// BIT-IDENTICAL for any --threads value, including 1 and including no threads at
+// all. Threads only decide how many partitions run at once (an std::thread pool we
+// own; RDataFrame's implicit MT is deliberately NOT used, as it splits by cluster
+// and merges in a nondeterministic order). The integer counts -- n_same, n_mixed,
+// n_dis, the ptb counts, the BSA histogram -- are order-independent and are simply
+// summed across partitions.
+//
+// THE ONE-TIME COST, stated so it is not mistaken for a bug: moving from the old
+// naive `double +=` to the compensated sum shifts sum_q2 et al. in their last bits
+// -- to the MORE accurate value -- once. That shift is detectable: this stage's
+// code_version and the config hash are stamped into every output.
 //
 // ===========================================================================
 // THE MIXING ASYMMETRY, AND THE INVARIANT THAT MAKES IT CORRECT
@@ -169,6 +189,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -177,11 +198,13 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
-#include <ROOT/RDataFrame.hxx>
 #include <ROOT/RVec.hxx>
+#include <TChain.h>
 #include <TFile.h>
+#include <TROOT.h>
 #include <TTree.h>
 #include <TTreeReader.h>
 #include <TTreeReaderArray.h>
@@ -192,9 +215,11 @@
 #include "core/Constants.hpp"
 #include "core/Kinematics.hpp"
 #include "core/Pairing.hpp"
+#include "core/Summation.hpp"
 #include "core/Types.hpp"
 #include "stageB_bin/DonorPool.hpp"
 #include "stageB_bin/InputChain.hpp"
+#include "util/Progress.hpp"
 #include "util/Provenance.hpp"
 #include "util/Sha256.hpp"
 
@@ -210,6 +235,11 @@ using pi0::stageB::ChainInput;
 using pi0::util::Provenance;
 using pi0::util::utc_now;
 
+/// Default target events per reproducible-reduction partition. Matches
+/// core/Summation.hpp's own default: coarse, so the partition COUNT stays modest
+/// and the merge (partitions x cells) stays negligible even on a production chain.
+constexpr std::size_t kPartitionTargetDefault = 200000;
+
 // ===========================================================================
 // CLI
 // ===========================================================================
@@ -224,11 +254,28 @@ struct Args {
     std::string grid_a;
     std::string grid_b;
     /// Stop after this many entries of the CHAIN -- N in total across every
-    /// input, not N per input. nullopt = all of them. `unsigned int` because that
-    /// is what RDataFrame::Range takes; the budget is a long long everywhere else.
+    /// input, not N per input. nullopt = all of them. `unsigned int` is a retained
+    /// cap (see parse_args): the budget is a long long everywhere else, and pass 1
+    /// now partitions the count pass 0 established rather than handing N to any
+    /// range primitive.
     std::optional<unsigned int> max_events;
     /// Accept a Stage A file that says it is a truncated run. See InputChain.hpp.
     bool allow_truncated_inputs{false};
+    /// Worker threads for PASS 1. DEFAULT 1. THE RESULT DOES NOT DEPEND ON THIS:
+    /// pass 1 is split into a fixed number of data-decided partitions (see
+    /// partition_target) whose per-cell sums are compensated and merged in
+    /// partition-index order, so every output tree is bit-identical for any thread
+    /// count. Threads only decide how many partitions run at once.
+    unsigned int threads{1};
+    /// Approximate events per reproducible-reduction partition. A TUNING knob for
+    /// the partition granularity, NOT a correctness knob: pi0::partition_count is a
+    /// pure function of (event count, this target), independent of --threads, so
+    /// the output is byte-identical across thread counts for ANY fixed value here.
+    /// The default is coarse on purpose -- partitions exist for a reproducible
+    /// reduction first and parallelism second, and a small target on a huge chain
+    /// would make the merge (partitions x cells) dominate. Lower it to expose more
+    /// parallelism on a small input. See core/Summation.hpp.
+    std::size_t partition_target{kPartitionTargetDefault};
 };
 
 void print_usage(const char* argv0) {
@@ -237,6 +284,7 @@ void print_usage(const char* argv0) {
               << "                       --config <cuts.json>\n"
               << "                       --grid-a <grid_A_q2_xb.json> --grid-b <grid_B_z_pt2.json>\n"
               << "                       [--max-events <N>] [--allow-truncated-inputs]\n"
+              << "                       [--threads <N>] [--partition-target <N>]\n"
               << "\n"
               << "  --input       a Stage A slim ROOT file (TTree \"events\"). Repeat for more; the N\n"
               << "                files are ONE run over ONE donor pool, which is the point -- a pool\n"
@@ -267,7 +315,21 @@ void print_usage(const char* argv0) {
               << "                HIPO, so N_DIS -- the normalisation denominator -- is short by an\n"
               << "                unknown amount while its spectra look complete, and chained with full\n"
               << "                files the shortfall is invisible. For smoke tests whose yields nobody\n"
-              << "                will quote. Stamped loudly into the output.\n";
+              << "                will quote. Stamped loudly into the output.\n"
+              << "  --threads     PASS 1 worker threads (default 1). THE OUTPUT DOES NOT DEPEND ON THIS.\n"
+              << "                Pass 1 is split into a FIXED number of partitions decided only by the\n"
+              << "                event count; each partition sums its own kinematic partials with a\n"
+              << "                compensated accumulator and they are merged in partition-index order, so\n"
+              << "                sum_q2 et al. are bit-identical for any --threads value, including 1.\n"
+              << "                Threads only decide how many partitions run at once. Progress goes to\n"
+              << "                stderr; stdout stays the cutflow/provenance.\n"
+              << "  --partition-target\n"
+              << "                approximate events per reproducible-reduction partition (default "
+              << kPartitionTargetDefault << ").\n"
+              << "                A TUNING knob for granularity, NOT a correctness knob: the partition\n"
+              << "                count is a pure function of (event count, this target) and never of the\n"
+              << "                thread count, so the output is byte-identical across --threads for any\n"
+              << "                fixed value here. Lower it to expose more parallelism on a small input.\n";
 }
 
 /// \throws std::runtime_error on any malformed or missing argument.
@@ -306,16 +368,55 @@ void print_usage(const char* argv0) {
                     "the whole input.");
             }
             if (n > std::numeric_limits<unsigned int>::max()) {
-                // The cap is RDataFrame::Range's, not this program's, and it is
+                // A retained unsigned-int cap on the --max-events knob. It is
                 // reachable now that one run chains a whole target: 30,866 slim
                 // files pass 2^32 events long before they run out. It is a
                 // refusal rather than a clamp for the reason the '-' check above
-                // exists -- a silently ignored limit reads as a full run.
+                // exists -- a silently ignored limit reads as a full run. (The
+                // partitioned pass 1 itself uses Long64_t entry ranges and is not
+                // bound by this; the cap stays only on the user-facing --max-events
+                // to keep a truncated smoke run's size an honest, small number.)
                 throw std::runtime_error("--max-events " + v + " exceeds the largest range this program can take (" +
                                          std::to_string(std::numeric_limits<unsigned int>::max()) +
                                          "). Omit the flag to process every event of every input.");
             }
             a.max_events = static_cast<unsigned int>(n);
+        } else if (flag == "--threads") {
+            const std::string v = value();
+            unsigned long long n = 0;
+            try {
+                if (v.find('-') != std::string::npos) throw std::invalid_argument("negative");
+                std::size_t pos = 0;
+                n = std::stoull(v, &pos);
+                if (pos != v.size()) throw std::invalid_argument("trailing characters");
+            } catch (const std::exception&) {
+                throw std::runtime_error("--threads wants a positive integer, got \"" + v + "\"");
+            }
+            if (n == 0) {
+                throw std::runtime_error("--threads 0 is meaningless; the minimum is 1 (the default).");
+            }
+            if (n > std::numeric_limits<unsigned int>::max()) {
+                throw std::runtime_error("--threads " + v + " is absurd; the maximum is " +
+                                         std::to_string(std::numeric_limits<unsigned int>::max()) + ".");
+            }
+            a.threads = static_cast<unsigned int>(n);
+        } else if (flag == "--partition-target") {
+            const std::string v = value();
+            unsigned long long n = 0;
+            try {
+                if (v.find('-') != std::string::npos) throw std::invalid_argument("negative");
+                std::size_t pos = 0;
+                n = std::stoull(v, &pos);
+                if (pos != v.size()) throw std::invalid_argument("trailing characters");
+            } catch (const std::exception&) {
+                throw std::runtime_error("--partition-target wants a positive integer, got \"" + v + "\"");
+            }
+            if (n == 0) {
+                // partition_count() would treat 0 as 1, but a user typing 0 has a
+                // typo, not an intent -- refuse rather than silently reinterpret.
+                throw std::runtime_error("--partition-target 0 is meaningless; it is events per partition.");
+            }
+            a.partition_target = static_cast<std::size_t>(n);
         } else {
             throw std::runtime_error("unknown argument \"" + flag + "\"");
         }
@@ -436,9 +537,10 @@ struct PoolPassStats {
 ///                inputs. Negative = unlimited. Threaded by reference, exactly as
 ///                make_grid's read_slim does, because the alternative -- a counter
 ///                scoped to this function -- would truncate at N PER FILE while
-///                pass 1's RDataFrame::Range truncates at N over the chain, and
-///                the pool would then model a strictly different sample from the
-///                spectra with every printed number still plausible.
+///                pass 1 truncates at N over the chain (it partitions p0_events,
+///                the count this budget produces), and the pool would then model a
+///                strictly different sample from the spectra with every printed
+///                number still plausible.
 /// \param n_events_used  this input's own contribution, for the provenance. Under
 ///                --max-events a file may be reached with the allowance already
 ///                spent and contribute 0; stamping it per input is what makes
@@ -586,6 +688,110 @@ struct Ptb3dCell {
     double sum_pt4{};
 };
 
+// ---------------------------------------------------------------------------
+// PARTITION PARTIALS -- the multi-threaded accumulators.
+//
+// One PartitionPartial per FIXED partition (see core/Summation.hpp), filled over
+// that partition's contiguous entry range IN ENTRY ORDER, then merged into the
+// running total in PARTITION-INDEX ORDER. The double sums use pi0::NeumaierSum so
+// that the merge carries each partial's compensation rather than rounding it back
+// into a single term -- which is what makes sum_q2 et al. bit-identical for any
+// thread count. The integer members are order-independent and merged by plain +=.
+//
+// These mirror SpectrumCell / Ptb3dCell field-for-field, differing only in the
+// sum type (NeumaierSum vs double). The final dense SpectrumCell / Ptb3dCell
+// arrays -- the output schema -- are filled from the merged total by calling
+// NeumaierSum::value() once per sum, at the very end.
+// ---------------------------------------------------------------------------
+
+/// Per-partition analogue of SpectrumCell.
+struct SpectrumPartial {
+    std::int64_t n_same{};
+    std::int64_t n_mixed{};
+    pi0::NeumaierSum sum_q2;
+    pi0::NeumaierSum sum_xb;
+    pi0::NeumaierSum sum_z;
+    pi0::NeumaierSum sum_pt2;
+
+    void merge(const SpectrumPartial& o) {
+        n_same += o.n_same;
+        n_mixed += o.n_mixed;
+        sum_q2.merge(o.sum_q2);
+        sum_xb.merge(o.sum_xb);
+        sum_z.merge(o.sum_z);
+        sum_pt2.merge(o.sum_pt2);
+    }
+};
+
+/// Per-partition analogue of Ptb3dCell.
+struct Ptb3dPartial {
+    std::int64_t counts{};
+    pi0::NeumaierSum sum_pt2;
+    pi0::NeumaierSum sum_pt4;
+
+    void merge(const Ptb3dPartial& o) {
+        counts += o.counts;
+        sum_pt2.merge(o.sum_pt2);
+        sum_pt4.merge(o.sum_pt4);
+    }
+};
+
+/// Everything one partition accumulates: the three dense histograms plus the flat
+/// cutflow counters. Every field is order-independent EXCEPT the NeumaierSum sums,
+/// which are made order-stable by the fixed partitioning + index-ordered merge.
+struct PartitionPartial {
+    std::vector<SpectrumPartial> spectra;  ///< [bin4d * n_mgg + imgg]
+    std::vector<Ptb3dPartial> ptb;         ///< [bin3d * n_mgg + imgg]
+    std::vector<std::int64_t> n_dis;       ///< [cell_a]
+    std::vector<std::int64_t> bsa;         ///< dense BSA index (see the schema block)
+
+    // Flat cutflow counters -- integers, order-independent.
+    long long n_events{};
+    long long n_off_grid_a{};
+    long long n_gamma_total{};
+    long long n_gamma_pass{};
+    long long n_same_pairs{};
+    long long n_same_z{};
+    long long n_same_binned{};
+    long long n_mixed_admissible{};
+    long long n_mixed_z{};
+    long long n_mixed_binned{};
+    long long n_bsa_filled{};
+    long long n_hel_undef{};
+    long long n_no_pool_bin{};
+
+    PartitionPartial(int n4d, int n3d, int n_a, int n_mgg, int n_phi)
+        : spectra(static_cast<std::size_t>(n4d) * static_cast<std::size_t>(n_mgg)),
+          ptb(static_cast<std::size_t>(n3d) * static_cast<std::size_t>(n_mgg)),
+          n_dis(static_cast<std::size_t>(n_a), 0),
+          bsa(static_cast<std::size_t>(n4d) * static_cast<std::size_t>(n_mgg) *
+                  static_cast<std::size_t>(n_phi) * 2u,
+              0) {}
+
+    /// Fold `o` into this. Called in PARTITION-INDEX ORDER: `total.merge(part[0]);
+    /// total.merge(part[1]); ...`. The sums' merge is index-order-sensitive by
+    /// design; the counts' is not.
+    void merge(const PartitionPartial& o) {
+        for (std::size_t i = 0; i < spectra.size(); ++i) spectra[i].merge(o.spectra[i]);
+        for (std::size_t i = 0; i < ptb.size(); ++i) ptb[i].merge(o.ptb[i]);
+        for (std::size_t i = 0; i < n_dis.size(); ++i) n_dis[i] += o.n_dis[i];
+        for (std::size_t i = 0; i < bsa.size(); ++i) bsa[i] += o.bsa[i];
+        n_events += o.n_events;
+        n_off_grid_a += o.n_off_grid_a;
+        n_gamma_total += o.n_gamma_total;
+        n_gamma_pass += o.n_gamma_pass;
+        n_same_pairs += o.n_same_pairs;
+        n_same_z += o.n_same_z;
+        n_same_binned += o.n_same_binned;
+        n_mixed_admissible += o.n_mixed_admissible;
+        n_mixed_z += o.n_mixed_z;
+        n_mixed_binned += o.n_mixed_binned;
+        n_bsa_filled += o.n_bsa_filled;
+        n_hel_undef += o.n_hel_undef;
+        n_no_pool_bin += o.n_no_pool_bin;
+    }
+};
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -638,9 +844,9 @@ int main(int argc, char* argv[]) {
         pi0::stageB::order_canonically(chain);
         pi0::stageB::validate_chain(chain, args.allow_truncated_inputs);
 
-        // The paths in canonical order. Pass 1 hands this to RDataFrame, which
-        // reads a chain in the order of the vector it is given -- so both passes
-        // see one sequence, and --max-events cuts both at the same prefix.
+        // The paths in canonical order. Each pass-1 partition builds a TChain from
+        // this, and a TChain reads its files in add-order -- so both passes see one
+        // sequence, and --max-events cuts both at the same prefix.
         std::vector<std::string> ordered_paths;
         ordered_paths.reserve(chain.size());
         for (const ChainInput& ci : chain) ordered_paths.push_back(ci.path);
@@ -779,33 +985,88 @@ int main(int argc, char* argv[]) {
                                           static_cast<std::size_t>(n_phi) * 2,
                                       0);
 
-        // ---- PASS 1: RDataFrame --------------------------------------------
-        std::cout << "--- pass 1: binning (single-threaded; see the header on why) ---\n";
+        // ---- PASS 1: partitioned binning (opt-in multi-threaded) -----------
+        //
+        // The event stream is split into a FIXED number of partitions decided ONLY
+        // by the event count (never by --threads); each partition sums its own
+        // per-cell partials in entry order with a compensated accumulator, and the
+        // partials are merged in PARTITION-INDEX ORDER. See the file header and
+        // core/Summation.hpp for why that makes every output tree bit-identical for
+        // any --threads value, including 1.
+        //
+        // The exact prefix both passes must cover is what pass 0 read: p0_events =
+        // min(--max-events, chain size). Partitioning THAT count -- rather than
+        // re-deriving it -- is what keeps the passes reading the same entries, and
+        // the p0_events == n_events check below now also proves the partitioned
+        // read visited every one of them.
+        const std::size_t total_entries = static_cast<std::size_t>(p0_events);
+        const std::size_t n_part = pi0::partition_count(total_entries, args.partition_target);
+        const unsigned int n_threads = std::max(1u, args.threads);
+        // No point spawning more lanes than there are partitions to run.
+        const unsigned int lanes = static_cast<unsigned int>(std::min<std::size_t>(n_threads, n_part));
 
-        long long n_events = 0, n_off_grid_a = 0;
-        long long n_gamma_total = 0, n_gamma_pass = 0;
-        long long n_same_pairs = 0, n_same_z = 0, n_same_binned = 0;
-        long long n_mixed_admissible = 0, n_mixed_z = 0, n_mixed_binned = 0;
-        long long n_bsa_filled = 0, n_hel_undef = 0;
-        long long n_no_pool_bin = 0;
+        std::cout << "--- pass 1: binning (" << n_threads << " thread(s), " << n_part
+                  << " data-decided partition(s); progress on stderr) ---\n";
 
-        // The CANONICAL order, not the command line's: RDataFrame reads a chain in
-        // the order of the vector it is given, and pass 0 offered the pool in that
-        // same order. Two passes over two orders would truncate at two different
-        // prefixes under --max-events and the p0_events check below would catch it
-        // -- but only when --max-events is given, which is not when it matters.
-        ROOT::RDataFrame df("events", ordered_paths);
-        ROOT::RDF::RNode node = df;
-        // Range over a multi-file RDataFrame is already N TOTAL across the chain,
-        // not N per file -- the same allowance pass 0 spends through budget_take.
-        // Range is single-thread only. This program never enables implicit MT, so
-        // that costs nothing -- and see the header for why MT is off.
-        if (args.max_events.has_value()) node = node.Range(0u, *args.max_events);
+        // ROOT's global state (TFile::Open, TClass, streamers) is made thread-safe
+        // ONLY when we will actually run more than one partition at once. The
+        // --threads 1 path (and any single-partition run) never touches it, so it
+        // stays byte-for-byte the old sequential flow with no per-call locking.
+        if (lanes > 1) ROOT::EnableThreadSafety();
 
-        node.Foreach(
-            [&](double q2, double xb, double nu, double w, double y, double ex, double ey, double ez, double ee,
-                int helicity, const RVecD& gpx, const RVecD& gpy, const RVecD& gpz, const RVecD& gang) {
-                ++n_events;
+        // Progress on STDERR (stdout carries the cutflow/provenance). TTY-aware and
+        // thread-safe already, so every worker can call add() concurrently.
+        pi0::Progress progress("stageB pass1", static_cast<std::int64_t>(total_entries), std::cerr);
+
+        // Bin ONE partition's entry range [begin, end) into its own partial. Reads
+        // through its OWN TChain + TTreeReader -- RDataFrame's implicit MT is not
+        // used, as it splits by cluster and merges nondeterministically (header).
+        // Everything it reads except `out` is const and shared: the frozen pool,
+        // the binning, the axes, the cuts. `progress` is the one shared mutable, and
+        // it is thread-safe.
+        auto run_partition = [&](std::size_t begin, std::size_t end, PartitionPartial& out) {
+            // The CANONICAL order, not the command line's: a TChain reads its files
+            // in add-order, and pass 0 offered the pool in that same order, so a
+            // global entry index means the same event to both passes.
+            TChain chain("events");
+            for (const std::string& p : ordered_paths) chain.Add(p.c_str());
+
+            TTreeReader reader(&chain);
+            TTreeReaderValue<double> r_q2(reader, "q2");
+            TTreeReaderValue<double> r_xb(reader, "xb");
+            TTreeReaderValue<double> r_nu(reader, "nu");
+            TTreeReaderValue<double> r_w(reader, "w");
+            TTreeReaderValue<double> r_y(reader, "y");
+            TTreeReaderValue<double> r_ex(reader, "ex");
+            TTreeReaderValue<double> r_ey(reader, "ey");
+            TTreeReaderValue<double> r_ez(reader, "ez");
+            TTreeReaderValue<double> r_ee(reader, "ee");
+            TTreeReaderValue<int> r_hel(reader, "helicity");
+            TTreeReaderArray<double> r_gpx(reader, "gpx");
+            TTreeReaderArray<double> r_gpy(reader, "gpy");
+            TTreeReaderArray<double> r_gpz(reader, "gpz");
+            TTreeReaderArray<double> r_gang(reader, "g_e_gamma_deg");
+
+            // Half-open [begin, end) over the WHOLE chain -- verified against ROOT's
+            // SetEntriesRange -- so the partitions tile [0, total_entries) exactly.
+            reader.SetEntriesRange(static_cast<Long64_t>(begin), static_cast<Long64_t>(end));
+
+            while (reader.Next()) {
+                progress.add();
+
+                const double q2 = *r_q2, xb = *r_xb, nu = *r_nu, w = *r_w, y = *r_y;
+                const double ex = *r_ex, ey = *r_ey, ez = *r_ez, ee = *r_ee;
+                const int helicity = *r_hel;
+                // Copy the four photon columns into RVecs so build_photons() -- THE
+                // one place the e-gamma cut is applied -- stays the single filter
+                // both passes share. The copy is a handful of doubles, negligible
+                // next to the O(photons x donors) mixing below.
+                const RVecD gpx(r_gpx.begin(), r_gpx.end());
+                const RVecD gpy(r_gpy.begin(), r_gpy.end());
+                const RVecD gpz(r_gpz.begin(), r_gpz.end());
+                const RVecD gang(r_gang.begin(), r_gang.end());
+
+                ++out.n_events;
 
                 // ---- N_DIS: ONCE PER EVENT, NOT PER pi0 --------------------
                 // *** THE INCLUSIVE DIS DENOMINATOR. *** It is filled here, at the
@@ -820,20 +1081,20 @@ int main(int argc, char* argv[]) {
                 // which is self-evidently a pi0 count and not a DIS count.
                 const int cell_a = binning.A.find(q2, xb);
                 if (cell_a >= 0) {
-                    ++n_dis[static_cast<std::size_t>(cell_a)];
+                    ++out.n_dis[static_cast<std::size_t>(cell_a)];
                 } else {
-                    ++n_off_grid_a;
+                    ++out.n_off_grid_a;
                 }
 
                 const pi0::DisKin dis{q2, nu, xb, w, y};
 
-                n_gamma_total += static_cast<long long>(gpx.size());
+                out.n_gamma_total += static_cast<long long>(gpx.size());
                 const std::vector<pi0::Photon> passing = build_photons(gpx, gpy, gpz, gang, cuts);
-                n_gamma_pass += static_cast<long long>(passing.size());
+                out.n_gamma_pass += static_cast<long long>(passing.size());
 
                 // ---- same-event pairs ---------------------------------------
                 const std::vector<pi0::GGPair> pairs = find_gg_pairs(passing, cuts.pairing);
-                n_same_pairs += static_cast<long long>(pairs.size());
+                out.n_same_pairs += static_cast<long long>(pairs.size());
 
                 for (const pi0::GGPair& p : pairs) {
                     const pi0::SidisKin s =
@@ -847,23 +1108,24 @@ int main(int argc, char* argv[]) {
                     // edge array -- and the day someone widened the grid, the
                     // selection would change with it.
                     if (!(s.z > cuts.sidis.z_min && s.z < cuts.sidis.z_max)) continue;
-                    ++n_same_z;
+                    ++out.n_same_z;
 
                     const int imgg = mgg_axis.find(p.mgg);
                     if (imgg < 0) continue;
                     const int bin4d = binning.find_4d(q2, xb, s.z, s.pt2);
                     if (bin4d < 0) continue;
-                    ++n_same_binned;
+                    ++out.n_same_binned;
 
-                    // *** THE ABSCISSA FIX. Per (4D bin, m_gg bin). ***
-                    SpectrumCell& c =
-                        spectra[static_cast<std::size_t>(bin4d) * static_cast<std::size_t>(n_mgg) +
-                                static_cast<std::size_t>(imgg)];
+                    // *** THE ABSCISSA FIX. Per (4D bin, m_gg bin). *** Compensated
+                    // sums (NeumaierSum::add), merged in partition-index order.
+                    SpectrumPartial& c =
+                        out.spectra[static_cast<std::size_t>(bin4d) * static_cast<std::size_t>(n_mgg) +
+                                    static_cast<std::size_t>(imgg)];
                     ++c.n_same;
-                    c.sum_q2 += q2;
-                    c.sum_xb += xb;
-                    c.sum_z += s.z;
-                    c.sum_pt2 += s.pt2;
+                    c.sum_q2.add(q2);
+                    c.sum_xb.add(xb);
+                    c.sum_z.add(s.z);
+                    c.sum_pt2.add(s.pt2);
 
                     // pT broadening, per (3D bin, m_gg bin). find_3d rather than
                     // bin4d / n_pt2: they agree whenever both are in range, but
@@ -871,11 +1133,11 @@ int main(int argc, char* argv[]) {
                     // (core/Binning.hpp says so explicitly).
                     const int bin3d = binning.find_3d(q2, xb, s.z);
                     if (bin3d >= 0) {
-                        Ptb3dCell& t = ptb[static_cast<std::size_t>(bin3d) * static_cast<std::size_t>(n_mgg) +
-                                           static_cast<std::size_t>(imgg)];
+                        Ptb3dPartial& t = out.ptb[static_cast<std::size_t>(bin3d) * static_cast<std::size_t>(n_mgg) +
+                                                  static_cast<std::size_t>(imgg)];
                         ++t.counts;
-                        t.sum_pt2 += s.pt2;
-                        t.sum_pt4 += s.pt2 * s.pt2;
+                        t.sum_pt2.add(s.pt2);
+                        t.sum_pt4.add(s.pt2 * s.pt2);
                     }
 
                     // BSA, per (4D bin, m_gg bin, phi_h bin, helicity).
@@ -883,7 +1145,7 @@ int main(int argc, char* argv[]) {
                         // UNDEFINED, not a third state. Dropped from THIS histogram
                         // and from nothing else: this event has already been
                         // counted in N_DIS, in the spectrum and in the sums above.
-                        ++n_hel_undef;
+                        ++out.n_hel_undef;
                     } else {
                         const int iphi = phi_axis.find(s.phi_h_deg);
                         if (iphi >= 0) {
@@ -895,8 +1157,8 @@ int main(int argc, char* argv[]) {
                                  static_cast<std::size_t>(iphi)) *
                                     2u +
                                 ihel;
-                            ++bsa[idx];
-                            ++n_bsa_filled;
+                            ++out.bsa[idx];
+                            ++out.n_bsa_filled;
                         }
                     }
                 }
@@ -922,8 +1184,8 @@ int main(int argc, char* argv[]) {
                 // definition everywhere, or the multiplicity matching is decorative.
                 const int pb = pool.pool_bin(q2, xb, passing.size());
                 if (pb < 0) {
-                    ++n_no_pool_bin;
-                    return;
+                    ++out.n_no_pool_bin;
+                    continue;
                 }
                 const std::vector<pi0::DonorPhoton>& donors = pool.donors(pb);
 
@@ -940,31 +1202,132 @@ int main(int argc, char* argv[]) {
 
                         const std::optional<pi0::GGPair> mp = pi0::admissible_pair(g, dp, cuts.pairing);
                         if (!mp.has_value()) continue;
-                        ++n_mixed_admissible;
+                        ++out.n_mixed_admissible;
 
                         // Same kinematics, computed against THIS event's virtual
                         // photon -- the mixed pair is a fake pi0 in this event.
                         const pi0::SidisKin s = pi0::kin::compute_sidis(mp->px, mp->py, mp->pz, mp->e, dis, ex, ey, ez,
                                                                         ee, cuts.beam.energy_gev);
                         if (!(s.z > cuts.sidis.z_min && s.z < cuts.sidis.z_max)) continue;
-                        ++n_mixed_z;
+                        ++out.n_mixed_z;
 
                         const int imgg = mgg_axis.find(mp->mgg);
                         if (imgg < 0) continue;
                         const int bin4d = binning.find_4d(q2, xb, s.z, s.pt2);
                         if (bin4d < 0) continue;
-                        ++n_mixed_binned;
+                        ++out.n_mixed_binned;
 
                         // n_mixed ONLY. No sum_* is touched here, and that is the
                         // point: a mixed pair's kinematics describe no pi0 and must
                         // never reach the abscissa.
-                        ++spectra[static_cast<std::size_t>(bin4d) * static_cast<std::size_t>(n_mgg) +
-                                  static_cast<std::size_t>(imgg)]
+                        ++out.spectra[static_cast<std::size_t>(bin4d) * static_cast<std::size_t>(n_mgg) +
+                                      static_cast<std::size_t>(imgg)]
                               .n_mixed;
                     }
                 }
-            },
-            {"q2", "xb", "nu", "w", "y", "ex", "ey", "ez", "ee", "helicity", "gpx", "gpy", "gpz", "g_e_gamma_deg"});
+            }
+
+            // Mirror pass 0's schema-error guard. A bounded range and a full read
+            // both terminate the loop at kEntryBeyondEnd (verified against this
+            // ROOT), so any OTHER terminal status is a real read/dictionary failure
+            // -- a missing branch surfaces here rather than as silent zeroes.
+            if (reader.GetEntryStatus() != TTreeReader::kEntryBeyondEnd) {
+                throw std::runtime_error("failed reading \"events\" over entry range [" + std::to_string(begin) + ", " +
+                                         std::to_string(end) + ") (TTreeReader status " +
+                                         std::to_string(static_cast<int>(reader.GetEntryStatus())) +
+                                         "). Check the branch list matches the Stage A schema.");
+            }
+        };
+
+        // Run the partitions in waves of `lanes` at a time -- each into its own
+        // partial -- then MERGE each wave's partials into `total` in
+        // PARTITION-INDEX ORDER. Two properties come out of this shape:
+        //   * at most `lanes` dense per-partition histograms are alive at once, so
+        //     memory is O(lanes) rather than O(n_part);
+        //   * `total` sees partition 0, then 1, then 2, ... in strict index order
+        //     across every wave, which is what makes the compensated sums
+        //     bit-identical to the single-partition (and hence single-thread) run.
+        PartitionPartial total(n4d, n3d, n_a, n_mgg, n_phi);
+        for (std::size_t wave_start = 0; wave_start < n_part; wave_start += lanes) {
+            const std::size_t wave_end = std::min<std::size_t>(wave_start + lanes, n_part);
+            const std::size_t wcount = wave_end - wave_start;
+
+            std::vector<PartitionPartial> partials;
+            partials.reserve(wcount);
+            for (std::size_t k = 0; k < wcount; ++k) partials.emplace_back(n4d, n3d, n_a, n_mgg, n_phi);
+
+            // A worker's throw must not cross the thread boundary; capture it and
+            // rethrow on this thread after the join.
+            std::vector<std::exception_ptr> errs(wcount);
+
+            if (wcount == 1) {
+                // Single lane -- the --threads 1 path, and the tail wave when one
+                // partition is left. Run inline on this thread; no std::thread.
+                const pi0::PartitionRange pr = pi0::partition_range(wave_start, n_part, total_entries);
+                try {
+                    run_partition(pr.begin, pr.end, partials[0]);
+                } catch (...) {
+                    errs[0] = std::current_exception();
+                }
+            } else {
+                std::vector<std::thread> workers;
+                workers.reserve(wcount);
+                for (std::size_t k = 0; k < wcount; ++k) {
+                    const std::size_t part_idx = wave_start + k;
+                    workers.emplace_back([&, k, part_idx]() {
+                        try {
+                            const pi0::PartitionRange pr = pi0::partition_range(part_idx, n_part, total_entries);
+                            run_partition(pr.begin, pr.end, partials[k]);
+                        } catch (...) {
+                            errs[k] = std::current_exception();
+                        }
+                    });
+                }
+                for (std::thread& t : workers) t.join();
+            }
+
+            for (std::size_t k = 0; k < wcount; ++k) {
+                if (errs[k]) std::rethrow_exception(errs[k]);
+            }
+            // INDEX ORDER: k ascends, so `total` folds partitions wave_start,
+            // wave_start+1, ... in order, and across waves the order is global.
+            for (std::size_t k = 0; k < wcount; ++k) total.merge(partials[k]);
+        }
+        progress.finish();
+
+        // Publish the merged partial into the dense output arrays and the flat
+        // cutflow counters. The NeumaierSum -> double conversion happens HERE, once,
+        // via value(): this is the single point where the compensated sums become
+        // the numbers written to disk.
+        for (std::size_t i = 0; i < spectra.size(); ++i) {
+            spectra[i].n_same = total.spectra[i].n_same;
+            spectra[i].n_mixed = total.spectra[i].n_mixed;
+            spectra[i].sum_q2 = total.spectra[i].sum_q2.value();
+            spectra[i].sum_xb = total.spectra[i].sum_xb.value();
+            spectra[i].sum_z = total.spectra[i].sum_z.value();
+            spectra[i].sum_pt2 = total.spectra[i].sum_pt2.value();
+        }
+        for (std::size_t i = 0; i < ptb.size(); ++i) {
+            ptb[i].counts = total.ptb[i].counts;
+            ptb[i].sum_pt2 = total.ptb[i].sum_pt2.value();
+            ptb[i].sum_pt4 = total.ptb[i].sum_pt4.value();
+        }
+        n_dis = std::move(total.n_dis);
+        bsa = std::move(total.bsa);
+
+        const long long n_events = total.n_events;
+        const long long n_off_grid_a = total.n_off_grid_a;
+        const long long n_gamma_total = total.n_gamma_total;
+        const long long n_gamma_pass = total.n_gamma_pass;
+        const long long n_same_pairs = total.n_same_pairs;
+        const long long n_same_z = total.n_same_z;
+        const long long n_same_binned = total.n_same_binned;
+        const long long n_mixed_admissible = total.n_mixed_admissible;
+        const long long n_mixed_z = total.n_mixed_z;
+        const long long n_mixed_binned = total.n_mixed_binned;
+        const long long n_bsa_filled = total.n_bsa_filled;
+        const long long n_hel_undef = total.n_hel_undef;
+        const long long n_no_pool_bin = total.n_no_pool_bin;
 
         // ---- consistency checks ---------------------------------------------
         // Cheap, so checked rather than assumed. A wrong number here is worse than
@@ -978,11 +1341,12 @@ int main(int argc, char* argv[]) {
                                          std::to_string(n_events) + " events read.");
             }
             // THE CHEAPEST TEST OF THE WHOLE MULTI-INPUT PATH, and it must not be
-            // weakened. The two passes truncate through INDEPENDENT machinery --
-            // pass 0 counts by hand across the per-file loop (budget_take), pass 1
-            // hands the chain to RDataFrame::Range -- so this equality is what
-            // proves they agree about what "N events" means. A budget scoped per
-            // file rather than per chain fails here and nowhere else.
+            // weakened. Pass 0 counts by hand across the per-file loop (budget_take)
+            // to produce p0_events; pass 1 partitions p0_events and sums each
+            // partition's own event count back up here -- so this equality proves
+            // both that the two passes agree about what "N events" means AND that
+            // the partitioned read visited every entry it was told to. A budget
+            // scoped per file rather than per chain fails here and nowhere else.
             if (p0_events != n_events) {
                 throw std::runtime_error(
                     "the two passes read different numbers of events (" + std::to_string(p0_events) + " vs " +
@@ -1341,10 +1705,35 @@ int main(int argc, char* argv[]) {
                  "putting a real pi0 correlation into the background for that event. Bounded by O(donors_per_bin / "
                  "N_events_in_bin), stated in DonorPool.hpp, NOT quantified.");
 
-        prov.add("threading", "single-threaded, deliberately. The frozen pool makes pass 1 safely parallel, but the "
-                              "kinematic sums are sums of doubles: per-thread partials merged at the end would make "
-                              "sum_q2 depend on how the file was divided, i.e. on the thread count. A reproducible "
-                              "abscissa is what this stage is for.");
+        // The record of HOW pass 1 was reduced -- and, above all, that the answer
+        // does not depend on it. The former stamp said this stage was
+        // "single-threaded, deliberately" because merging per-thread partials would
+        // make sum_q2 depend on the thread count; core/Summation.hpp removed that
+        // obstacle, so the truth is now the opposite and is stated here.
+        prov.add("threading",
+                 std::to_string(n_threads) + " worker thread(s) over " + std::to_string(n_part) +
+                     " data-decided partition(s) (target ~" + std::to_string(args.partition_target) +
+                     " events each). THE OUTPUT DOES NOT DEPEND ON THE THREAD COUNT. Pass 1 splits the event stream "
+                     "into a FIXED number of partitions decided ONLY by the event count (pi0::partition_count over "
+                     "the events pass 0 read), never by --threads. Each partition sums its kinematic partials "
+                     "(spectra sum_q2/xb/z/pt2, ptb sum_pt2/pt4) IN ENTRY ORDER with a compensated (Neumaier) "
+                     "accumulator, and the partition partials are merged in PARTITION-INDEX ORDER, carrying each "
+                     "partial's compensation. A sum therefore never crosses a partition boundary, so every branch of "
+                     "every tree is BIT-IDENTICAL for any --threads value, including 1 and including no threads at "
+                     "all; threads only decide how many partitions run at once. RDataFrame's implicit MT is "
+                     "deliberately NOT used -- it splits by cluster and merges in a nondeterministic order. Integer "
+                     "counts (n_same, n_mixed, n_dis, the ptb counts, the BSA histogram) are order-independent and "
+                     "are simply summed. ONE-TIME SHIFT: moving from the former naive double sum to this compensated "
+                     "sum changes sum_q2 et al. in their last bits, once, to the MORE accurate value; it is detectable "
+                     "via this stage's code_version and the config hash.");
+        prov.add("threading.threads", std::to_string(n_threads) + " (pass 1 workers; --threads, default 1)");
+        prov.add("threading.partitions",
+                 std::to_string(n_part) + " (fixed, = pi0::partition_count(events_read, partition_target); a pure "
+                                          "function of the data, independent of --threads)");
+        prov.add("threading.partition_target",
+                 std::to_string(args.partition_target) +
+                     " (approx events per reproducible-reduction partition; a granularity knob, NOT a correctness "
+                     "knob -- the output is byte-identical across --threads for any fixed value)");
 
         prov.add("abscissa.contract",
                  "THE POINT OF THIS STAGE. spectra/sum_{q2,xb,z,pt2} are SAME-EVENT ONLY and are accumulated per "
