@@ -63,8 +63,14 @@ ROOT_dep = dependency(
 # build. Hence: check here and fail loudly at configure time rather than let the
 # user hit a confusing rootcling error ten minutes into the build.
 # ---------------------------------------------------------------------------
+# WHERE vdt LIVES IS PLATFORM-DEPENDENT, so ask rather than guess. On the JLab
+# farm it ships inside ROOT's own include directory; under Homebrew it is a
+# separate formula in /opt/homebrew/include. ROOT's incdir is tried FIRST, and it
+# is the case that needs no environment at all -- see below.
+root_incdir = run_command('root-config', '--incdir', check: true).stdout().strip()
+
 vdt_incdir = ''
-foreach candidate : ['/opt/homebrew/include', '/usr/local/include', '/usr/include']
+foreach candidate : [root_incdir, '/opt/homebrew/include', '/usr/local/include', '/usr/include']
   if vdt_incdir == '' and fs.exists(candidate / 'vdt' / 'vdtMath.h')
     vdt_incdir = candidate
   endif
@@ -72,30 +78,41 @@ endforeach
 
 if vdt_incdir == ''
   error(
-    'vdt/vdtMath.h not found, but ROOT 6.40\'s <ROOT/RVec.hxx> includes it.\n' +
-    'Install it with:  brew install vdt',
+    'vdt/vdtMath.h not found, but ROOT\'s <ROOT/RVec.hxx> includes it.\n' +
+    '\n' +
+    'Looked in ROOT\'s own include dir (' + root_incdir + '), then\n' +
+    '/opt/homebrew/include, /usr/local/include, /usr/include.\n' +
+    '\n' +
+    'On macOS:  brew install vdt\n' +
+    'Elsewhere: install vdt, or use a ROOT build that ships it.',
   )
 endif
 
-root_include_path = run_command(
-  'printenv', 'ROOT_INCLUDE_PATH',
-  check: false,
-).stdout().strip()
+# ROOT_INCLUDE_PATH is only needed when vdt sits somewhere rootcling does not
+# already look. rootcling always searches ROOT's own incdir -- that is where
+# ROOT's headers are, so it reads it by construction -- and demanding the
+# variable in that case would be demanding the user point it at a directory it
+# cannot miss. That is the JLab farm, where this builds with no environment set.
+if vdt_incdir != root_incdir
+  root_include_path = run_command('printenv', 'ROOT_INCLUDE_PATH', check: false).stdout().strip()
 
-if not root_include_path.split(':').contains(vdt_incdir)
-  error(
-    'ROOT_INCLUDE_PATH does not contain "' + vdt_incdir + '".\n' +
-    '\n' +
-    'rootcling needs it to find <vdt/vdtMath.h> when it generates the\n' +
-    'libHipoDataFrame dictionary; without it the build fails with\n' +
-    '  fatal error: \'vdt/vdtMath.h\' file not found\n' +
-    '\n' +
-    'Export it in the shell you build from, then re-run meson setup:\n' +
-    '\n' +
-    '    export ROOT_INCLUDE_PATH=' + vdt_incdir + '\n' +
-    '\n' +
-    'It is needed for `ninja` too, not just `meson setup`. See README.md.',
-  )
+  if not root_include_path.split(':').contains(vdt_incdir)
+    error(
+      'ROOT_INCLUDE_PATH does not contain "' + vdt_incdir + '".\n' +
+      '\n' +
+      'vdt is at ' + vdt_incdir + ', which is NOT inside ROOT\'s include dir\n' +
+      '(' + root_incdir + '), so rootcling will not find it by itself. It needs\n' +
+      '<vdt/vdtMath.h> to generate the libHipoDataFrame dictionary; without it\n' +
+      'the build fails with\n' +
+      '  fatal error: \'vdt/vdtMath.h\' file not found\n' +
+      '\n' +
+      'Export it in the shell you build from, then re-run meson setup:\n' +
+      '\n' +
+      '    export ROOT_INCLUDE_PATH=' + vdt_incdir + '\n' +
+      '\n' +
+      'It is needed for `ninja` too, not just `meson setup`. See README.md.',
+    )
+  endif
 endif
 
 # Make ROOT_INCLUDE_PATH available to `meson devenv -C build`, so that running
