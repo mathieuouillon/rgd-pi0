@@ -743,6 +743,54 @@ wheels = [
 ]
 
 [[package]]
+name = "mplhep"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.11'",
+]
+dependencies = [
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "mplhep-data", marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "packaging", marker = "python_full_version < '3.11'" },
+    { name = "uhi", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/8d/4b70ff5f55d6536e8791ac0d3440e0a30cc4e25c339322af3864d98f97af/mplhep-1.2.1.tar.gz", hash = "sha256:68c3a7c8607e2bca8d67933a6c5358d6c45d0d2d9de85b85db0fd867752b0883", size = 4318106 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/00/857293b2f0fd292f69072c48d15f9ea9e7b4b6dfb2908fd9766bda5f346e/mplhep-1.2.1-py3-none-any.whl", hash = "sha256:6b2df21d25c2ad58657336c70ee6d37fb220d58ef300e93a91bf8057be6b38ab", size = 98745 },
+]
+
+[[package]]
+name = "mplhep"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.12'",
+    "python_full_version == '3.11.*'",
+]
+dependencies = [
+    { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "mplhep-data", marker = "python_full_version >= '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "uhi", marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/69/85/746d1fb41700f9a3e61488a7b147614116010eb4652ad33417427a0dafe4/mplhep-1.3.1.tar.gz", hash = "sha256:deb40ca24d93b62edcae28785c291c15a0413d5de0c9cc5a488ea9b5386b5fc9", size = 4834164 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5a/ee/98b32978bee0b1e9fcb1b176a1501e65dbbf48c372a0dcec307ecb03cbe5/mplhep-1.3.1-py3-none-any.whl", hash = "sha256:0fb43522469a074651c492a47fe2a8a9c4babd8fcb3c17a5a73de0bcf39fbfcd", size = 93663 },
+]
+
+[[package]]
+name = "mplhep-data"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/31/fb/f5b3c979f13c67a04e186909c6fe45db056af8aa108191e5330ec17ac6d8/mplhep_data-0.1.0.tar.gz", hash = "sha256:bf9cdcc65c3a9ce7d8f0e3078ff659ef3fcfde119e625a0f71f21b06edabc4c9", size = 9128293 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/b3/9fd3f0124db0fba54be9913f1f9292b8d1ace59948b379b66c6c33f2d291/mplhep_data-0.1.0-py3-none-any.whl", hash = "sha256:0757bbdf5707d68ae03cd980e043f1b8d176aea766dc6c33338a572c20e20755", size = 9131737 },
+]
+
+[[package]]
 name = "numpy"
 version = "2.2.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1110,6 +1158,8 @@ source = { editable = "." }
 dependencies = [
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "mplhep", version = "1.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "mplhep", version = "1.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -1127,6 +1177,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.7" },
+    { name = "mplhep", specifier = ">=0.3" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7" },
     { name = "scipy", specifier = ">=1.10" },
@@ -1390,6 +1441,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz", hash = "sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5", size = 113555 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl", hash = "sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8", size = 45571 },
+]
+
+[[package]]
+name = "uhi"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/21/fe2832bbc20a60563952171a28e6d3bae8072a4b6d06ec6cc5098c4ca0d9/uhi-1.1.1.tar.gz", hash = "sha256:d39c4dc162d691bcb443529a9cf5fe99b11e14a387cdf8284154cc25870d2ff0", size = 49651 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/26/d3/58b6e548e7db998c4f3eefcacb74b6c256607e6dfdd1d97679d4864116d8/uhi-1.1.1-py3-none-any.whl", hash = "sha256:e71862637f312b54c091cd771dd236e1a9fbe450de937bcf21e30ad0b7013aae", size = 25735 },
 ]
 
 [[package]]
