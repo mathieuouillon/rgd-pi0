@@ -239,6 +239,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--files-per-job", type=int, default=None, help="override farm/files_per_job")
     p.add_argument("--workflow", default=None, help="override farm/swif2/workflow")
     p.add_argument("--max-jobs", type=int, default=None, help="synthesize at most N jobs (for testing)")
+    p.add_argument("--max-events", type=int, default=None,
+                   help="cap each skim at N events. FOR SMOKE TESTS: an RG-D train skim is ~200 GB, "
+                        "so an unbounded job on one is a long, expensive way to find a typo. Every "
+                        "output is then a PREFIX of its input, says so in its own provenance, and is "
+                        "refused by Stage B unless you pass --allow-truncated-inputs.")
     p.add_argument("--file-list", type=Path, default=None,
                    help="read the input file list from this file instead of scanning. Useful on a login "
                         "node, or to reproduce an old production exactly.")
@@ -305,6 +310,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"workflow       : {cfg.swif2.workflow}")
     print(f"resources      : {cfg.swif2.cores} core(s), {cfg.swif2.ram_gb}G ram, "
           f"{cfg.swif2.disk_gb}G disk, {format_swif2_time(cfg.swif2.time)}")
+    if args.max_events:
+        print(f"max events     : {args.max_events} PER FILE -- every output is a TRUNCATED PREFIX, "
+              f"not a sample.\n                 Stamped into each output's provenance; Stage B refuses "
+              f"such a file by default.")
     print(f"output         : {cfg.output_dir}/<run>/<job>/slim_<i>.root")
     print(f"logs           : {cfg.log_dir}/<job>.log")
 
@@ -370,7 +379,8 @@ def main(argv: list[str] | None = None) -> int:
     scripts_dir.mkdir(parents=True, exist_ok=True)
     for ch in chunks:
         job = f"{cfg.swif2.workflow}_{ch.name_suffix}"
-        (scripts_dir / f"{job}.wrapper.sh").write_text(stagea_wrapper(cfg, len(ch.files), exe_abs))
+        (scripts_dir / f"{job}.wrapper.sh").write_text(
+            stagea_wrapper(cfg, len(ch.files), exe_abs, max_events=args.max_events))
 
     script = swif2_script(cfg, chunks, scripts_dir=scripts_dir, exe=exe_abs, cuts_path=cuts_path)
     script_path = scripts_dir / f"{cfg.swif2.workflow}.swif2.sh"

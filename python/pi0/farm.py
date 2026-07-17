@@ -493,8 +493,13 @@ def _q(s: str) -> str:
     return shlex.quote(str(s))
 
 
-def stagea_wrapper(cfg: FarmConfig, n_staged: int, exe: str) -> str:
+def stagea_wrapper(cfg: FarmConfig, n_staged: int, exe: str, max_events: int | None = None) -> str:
     """The per-job script SWIF2 runs on the node.
+
+    ``max_events`` caps each skim. It is for smoke tests -- an RG-D train skim is
+    ~200 GB, so an unbounded job against one is a long, expensive way to discover
+    a typo. Every output it produces is a PREFIX of its input and says so in its
+    own provenance, and Stage B refuses such a file unless told otherwise.
 
     stageA_skim takes ONE input per invocation, so this loops. It does NOT use
     ``set -e``: a single bad file must not silently abandon the rest of the
@@ -528,7 +533,8 @@ def stagea_wrapper(cfg: FarmConfig, n_staged: int, exe: str) -> str:
         "        rc=4; continue",
         "    fi",
         f"    {_q(exe)} --input \"$in\" --output \"$out\" \\",
-        f"        --config cuts.json --target {_q(cfg.target)}",
+        f"        --config cuts.json --target {_q(cfg.target)}"
+        + (f" --max-events {int(max_events)}" if max_events else ""),
         "    s=$?",
         '    if [[ $s -ne 0 ]]; then',
         '        echo "stageA_skim FAILED on $in with exit $s" >&2',
