@@ -124,11 +124,18 @@ def _provenance_note(slim_path: Path) -> str:
 
 
 def _stamp(fig, text: str):
-    """Below the axes, not on them.
+    """Below the axes, not on them. No-op when ``text`` is empty.
+
+    The provenance is still READ and validated for every figure (a missing block
+    is a hard error, and it supplies the target); this only controls whether it
+    is DRAWN. For the analysis note the caveat lives in the prose, which carries
+    it far more prominently than a 6-pt watermark, so `--stamp` defaults off.
 
     y is negative so that savefig's tight bbox extends to include it; at y=0.005
     it landed on top of the x-axis label.
     """
+    if not text:
+        return
     fig.text(0.995, -0.035, text, ha="right", va="top", fontsize=6,
              color="#8a8a8a", style="italic")
 
@@ -423,6 +430,10 @@ def main(argv: list[str] | None = None) -> int:
                         "figures that show a cut REMOVING something are skipped, not faked.")
     p.add_argument("--config", type=Path, default=Path("config"), help="config DIRECTORY")
     p.add_argument("--outdir", type=Path, required=True)
+    p.add_argument("--stamp", action="store_true",
+                   help="draw the provenance line (target/run/fallback/truncation) on each figure. "
+                        "OFF by default: in the note the caveat belongs in the prose. The provenance "
+                        "is still read and validated either way; this only controls whether it is drawn.")
     args = p.parse_args(argv)
 
     try:
@@ -436,9 +447,11 @@ def main(argv: list[str] | None = None) -> int:
     _style()
     cuts = _load_cuts(args.config)
     args.outdir.mkdir(parents=True, exist_ok=True)
-    stamp = _provenance_note(args.slim)
-    if stamp:
-        print(f"provenance stamp on every figure: {stamp}")
+    # Read + validate provenance always (raises if the block is missing); only
+    # DRAW it when --stamp is given.
+    provenance = _provenance_note(args.slim)
+    print(f"provenance: {provenance}")
+    stamp = provenance if args.stamp else ""
 
     import uproot
     ev = uproot.open(args.slim)["events"].arrays(library="np")
