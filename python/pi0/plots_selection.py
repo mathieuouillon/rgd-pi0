@@ -462,12 +462,14 @@ def main(argv: list[str] | None = None) -> int:
         qa_e = f["qa_electron"].arrays(library="np")
         qa_g = f["qa_photon"].arrays(library="np")
         print(f"qa: {len(qa_e['p'])} electron candidates, {len(qa_g['e'])} photon candidates")
+        # The cut names live IN the QA file, written by stageA_skim from the same
+        # kElectronStages array the printed cutflow uses -- so the figure's labels
+        # cannot drift from the cuts that actually ran. (An earlier version looked
+        # for a config file that never existed and fell back to "cut 1", "cut 2".)
         names = {}
-        try:
-            with (args.config / "electron_cut_names.json").open() as fh:
-                names = json.load(fh)
-        except OSError:
-            pass
+        if "qa_electron_stages" in [k.split(";")[0] for k in f.keys()]:
+            st = f["qa_electron_stages"].arrays(library="np")
+            names = {int(i): lbl for i, lbl in zip(st["index"], st["label"])}
         fig_sampling_fraction(qa_e, cuts, args.outdir, stamp)
         fig_vz(qa_e, cuts, args.outdir, stamp, target)
         fig_gbt(qa_g, cuts, args.outdir, stamp)
