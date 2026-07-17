@@ -67,6 +67,21 @@ C_CUT = "#111111"      # the cut line itself
 C_BAND = "#f0a202"     # an accepted band
 
 
+def _step(ax, data, bins, *, label=None, color=None):
+    """One drawing path for every 1D histogram: an UNFILLED step, via mplhep.
+
+    mplhep.histplot with histtype="step" gives the outlined, unfilled histogram
+    that reads as HEP-standard; routing all of them through here keeps them
+    consistent. No mplhep experiment *style* is applied -- the module's own
+    minimal rcParams stay in charge -- only its histogram drawing.
+    """
+    import mplhep as hep
+
+    counts, edges = np.histogram(np.asarray(data), bins=bins)
+    hep.histplot(counts, edges, ax=ax, label=label, color=color, histtype="step")
+    return counts
+
+
 def _load_cuts(config_dir: Path) -> dict:
     with (Path(config_dir) / "cuts.json").open() as f:
         return json.load(f)
@@ -162,7 +177,7 @@ def fig_dis_phase_space(ev: dict, cuts: dict, out: Path, stamp: str):
     M = cuts["beam"]["proton_mass_gev"]
 
     fig, ax = plt.subplots(figsize=(5.2, 3.9))
-    h = ax.hist2d(ev["xb"], ev["q2"], bins=(60, 60), cmap="Blues", cmin=1)
+    h = ax.hist2d(ev["xb"], ev["q2"], bins=(60, 60), cmap="viridis", cmin=1)
     fig.colorbar(h[3], ax=ax, label="DIS events")
 
     xb = np.linspace(1e-3, 1.0, 400)
@@ -204,7 +219,7 @@ def fig_dis_1d(ev: dict, cuts: dict, out: Path, stamp: str):
         ("nu", r"$\nu$  [GeV]", None, None),
     ]
     for ax, (key, label, cut, kind) in zip(axes.ravel(), spec):
-        ax.hist(ev[key], bins=60, color=C_ACCEPT, alpha=0.85)
+        _step(ax, ev[key], 60, color=C_ACCEPT)
         if cut is not None:
             ax.axvline(cut, color=C_CUT, lw=1.4,
                        label=f"{'>' if kind == 'min' else '<'} {cut:g}")
@@ -232,7 +247,7 @@ def fig_electron_kinematics(ev: dict, cuts: dict, out: Path, stamp: str):
     pmin = cuts["electron"]["min_momentum_gev"]
 
     fig, ax = plt.subplots(figsize=(5.2, 3.9))
-    h = ax.hist2d(theta, p, bins=(60, 60), cmap="Blues", cmin=1)
+    h = ax.hist2d(theta, p, bins=(60, 60), cmap="viridis", cmin=1)
     fig.colorbar(h[3], ax=ax, label="electrons")
     ax.axhline(pmin, color=C_CUT, lw=1.4, label=f"$p > {pmin:g}$ GeV")
     ax.set_xlabel(r"$\theta_e$  [deg]")
@@ -260,20 +275,19 @@ def fig_photon(ev: dict, cuts: dict, out: Path, stamp: str):
     amin = cuts["pairing"]["e_gamma_min_angle_deg"]
 
     fig, axes = plt.subplots(1, 3, figsize=(9.6, 3.1))
-    axes[0].hist(e, bins=60, color=C_ACCEPT, alpha=0.85)
+    _step(axes[0], e, 60, color=C_ACCEPT)
     axes[0].set_xlabel(r"$E_\gamma$  [GeV]"); axes[0].set_ylabel("photons")
     axes[0].set_yscale("log")
     axes[0].set_title("energy")
 
-    axes[1].hist(theta, bins=60, color=C_ACCEPT, alpha=0.85)
+    _step(axes[1], theta, 60, color=C_ACCEPT)
     axes[1].set_xlabel(r"$\theta_\gamma$  [deg]"); axes[1].set_ylabel("photons")
     axes[1].set_title("polar angle")
 
     keep = ang >= amin
-    axes[2].hist(ang[~keep], bins=np.linspace(0, max(40, float(ang.max())), 60),
-                 color=C_REJECT, alpha=0.9, label=f"removed ({(~keep).sum()})")
-    axes[2].hist(ang[keep], bins=np.linspace(0, max(40, float(ang.max())), 60),
-                 color=C_ACCEPT, alpha=0.85, label=f"kept ({keep.sum()})")
+    ega_bins = np.linspace(0, max(40, float(ang.max())), 60)
+    _step(axes[2], ang[~keep], ega_bins, color=C_REJECT, label=f"removed ({(~keep).sum()})")
+    _step(axes[2], ang[keep], ega_bins, color=C_ACCEPT, label=f"kept ({keep.sum()})")
     axes[2].axvline(amin, color=C_CUT, lw=1.4, label=fr"$\theta_{{e\gamma}} > {amin:g}^\circ$")
     axes[2].set_xlabel(r"$\theta_{e\gamma}$  [deg]"); axes[2].set_ylabel("photons")
     axes[2].set_title("angle to the electron")
@@ -346,9 +360,10 @@ def fig_vz(qa: dict, cuts: dict, out: Path, stamp: str, target: str):
     # No clipping: hist drops out-of-range values rather than piling them into a
     # fake bar at the edge. The tails are misreconstructed tracks; the note below
     # records how much fell off, so nothing is hidden silently.
-    ax.hist(vz[~ok], bins=bins, color=C_REJECT, alpha=0.55, label="rejected (any cut)")
-    ax.hist(vz[ok], bins=bins, color=C_ACCEPT, alpha=0.85, label="accepted")
+    _step(ax, vz[~ok], bins, color=C_REJECT, label="rejected (any cut)")
+    _step(ax, vz[ok], bins, color=C_ACCEPT, label="accepted")
     ax.set_xlim(lo, hi)
+    ax.set_yscale("log")  # the vertex peak dwarfs the tails; log shows both
 
     for name, style in (("cu", "-"), ("sn", "--"), ("ld2", ":")):
         if name not in tg:
@@ -392,10 +407,8 @@ def fig_gbt(qa_g: dict, cuts: dict, out: Path, stamp: str):
 
     fig, ax = plt.subplots(figsize=(5.6, 3.6))
     bins = np.linspace(0, 1, 60)
-    ax.hist(s[scored & ~ok], bins=bins, color=C_REJECT, alpha=0.75,
-            label=f"below threshold ({(scored & ~ok).sum()})")
-    ax.hist(s[scored & ok], bins=bins, color=C_ACCEPT, alpha=0.85,
-            label=f"accepted ({(scored & ok).sum()})")
+    _step(ax, s[scored & ~ok], bins, color=C_REJECT, label=f"below threshold ({(scored & ~ok).sum()})")
+    _step(ax, s[scored & ok], bins, color=C_ACCEPT, label=f"accepted ({(scored & ok).sum()})")
     ax.axvline(thr, color=C_CUT, lw=1.5, label=f"threshold {thr:g}")
     ax.set_yscale("log")
     ax.set_xlabel("GBT photon score  (sigmoid)")

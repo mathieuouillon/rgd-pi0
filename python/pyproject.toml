@@ -14,6 +14,7 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "matplotlib>=3.7",
+    "mplhep>=0.3",   # pi0.plots_selection draws its histograms with hep.histplot
 ]
 
 [project.optional-dependencies]
