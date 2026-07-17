@@ -394,21 +394,32 @@ def fig_vz(qa: dict, cuts: dict, out: Path, stamp: str, target: str):
 def fig_gbt(qa_g: dict, cuts: dict, out: Path, stamp: str):
     """The GBT photon score against its threshold.
 
-    Clusters the pre-filter rejected have no score at all -- the skim runs the
-    GBT lazily, precisely so it is not evaluated on most clusters -- so they are
-    counted in the title rather than drawn at a fictitious zero.
+    Coloured by the THRESHOLD the figure is about -- below vs above 0.78 -- so
+    the two populations fall cleanly on either side of the line. Colouring by
+    "accepted into the slim" instead put clusters that clear the threshold but
+    fail a LATER photon cut (beta, the tighter 14 cm PCAL fiducial) into the
+    "rejected" colour on the WRONG side of the line, which read as a
+    contradiction. Those clusters are real; they belong to the other cuts, not
+    to the threshold, so the caption -- not the colour -- accounts for them.
+
+    Clusters the pre-filter rejected have no score at all (the skim runs the GBT
+    lazily), so they are counted in the title, not drawn at a fictitious zero.
     """
     import matplotlib.pyplot as plt
 
     thr = cuts["photon"]["gbt_threshold"]
     s = qa_g["gbt_score"]
     scored = np.isfinite(s)
-    ok = qa_g["passed"] == 1
+    above = scored & (s > thr)
+    below = scored & (s <= thr)
+    # Above threshold but not in the slim: removed by a non-GBT photon cut.
+    passed = qa_g["passed"] == 1
+    also_removed = int((above & ~passed).sum())
 
     fig, ax = plt.subplots(figsize=(5.6, 3.6))
     bins = np.linspace(0, 1, 60)
-    _step(ax, s[scored & ~ok], bins, color=C_REJECT, label=f"below threshold ({(scored & ~ok).sum()})")
-    _step(ax, s[scored & ok], bins, color=C_ACCEPT, label=f"accepted ({(scored & ok).sum()})")
+    _step(ax, s[below], bins, color=C_REJECT, label=f"below threshold ({below.sum()})")
+    _step(ax, s[above], bins, color=C_ACCEPT, label=f"above threshold ({above.sum()})")
     ax.axvline(thr, color=C_CUT, lw=1.5, label=f"threshold {thr:g}")
     ax.set_yscale("log")
     ax.set_xlabel("GBT photon score  (sigmoid)")
@@ -418,6 +429,7 @@ def fig_gbt(qa_g: dict, cuts: dict, out: Path, stamp: str):
     _stamp(fig, stamp)
     fig.savefig(out / "sel_gbt_score.pdf")
     plt.close(fig)
+    return also_removed
 
 
 def fig_cutflow(qa: dict, names: dict, out: Path, stamp: str):
