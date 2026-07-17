@@ -71,6 +71,25 @@ test(
   suite: 'unit',
 )
 
+# The progress reporter's pure logic: the two output forms and the throttle.
+# The terminal behaviour (isatty, carriage returns) is left to end-to-end runs.
+test_progress_exe = executable(
+  'test_progress',
+  sources: files('test_progress.cpp'),
+  dependencies: [pi0_core_dep, catch2_dep],
+  install: false,
+  override_options: ['warning_level=3'],
+)
+
+test(
+  'progress',
+  test_progress_exe,
+  timeout: 30,
+  protocol: 'tap',
+  args: ['--reporter', 'tap'],
+  suite: 'unit',
+)
+
 # ---------------------------------------------------------------------------
 # test_vertex -- the vz correction (src/vertex).
 #
