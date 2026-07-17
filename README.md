@@ -134,6 +134,41 @@ That refusal is the design, not an obstacle: see [Refusals](#refusals-and-what-t
 Each program prints a cutflow and its provenance block on success, and takes no
 environment to run.
 
+#### Multi-threading and progress
+
+`stageA_skim`, `stageB_bin` and `make_grid` all take **`--threads N` (default
+1)**. The default is the single-threaded path, byte-for-byte the old output, and
+**the output does not depend on `N`** — that is the invariant, not an aspiration:
+
+- **Stage B** splits the events into a *fixed* number of partitions decided by
+  the event count (never by the thread count), sums each partition's kinematic
+  moments with a compensated accumulator, and merges them in partition-index
+  order. So `sum_q2` and the other abscissa moments are **bit-identical for any
+  `--threads`**, including 1. Verified across `--threads 1/4/8`.
+- **Stage A** scores photons (the GBT, the costly part) in parallel but fills the
+  slim and QA trees in entry order, so the slim is byte-identical across thread
+  counts. This matters because Stage B's donor pool is order-dependent — a
+  nondeterministic slim order would make the mixed-event background irreproducible.
+- **make_grid** parallelises across input files; its edges are quantiles of the
+  pooled sample, so order — and thread count — cannot reach the result.
+
+Two honest caveats:
+
+- **`--threads N>1` buffers events in memory** (Stage A and Stage B), so it is
+  for bounded runs (`--max-events`, or a per-file slim), not for pointing at a
+  raw 200 GB HIPO. **The farm uses `--threads 1`**, which streams in O(1) memory,
+  so production is unaffected.
+- **Stage A shows little speedup on a single HIPO file.** Its cost is dominated
+  by a one-time serial scan RHipoDS does to decompress the file's record index
+  (reading 50 events costs about the same as reading 4000). `--threads` helps
+  only when GBT scoring dominates — many photons across many events — and the
+  scan is paid once regardless. It never *hurts*, and the farm parallelises
+  across files anyway.
+
+Progress goes to **stderr**: a live bar on a terminal, an occasional
+grep-friendly line in a batch log (so `log.txt` stays readable). stdout is
+reserved for the cutflow and provenance.
+
 ---
 
 ### Step 0 — `dump_columns` (optional, diagnostic)
@@ -175,6 +210,8 @@ cuts, and the GBT photon selection. Writes one entry per surviving DIS event.
 | `--target <LD2\|CxC\|Cu\|Sn>` | yes | Selects the vertex window. **For Cu/Sn this *is* the target assignment** — the two foils are distinguished only by $v_z$. |
 | `--run <N>` | no | Override the run used to pick the GBT model. Normally read from `RUN::config`; pass only if the file's run is absent or wrong. |
 | `--max-events <N>` | no | Stop after N tag-0 events. For smoke tests. The output is a **prefix**, not a sample — stamped into the provenance so a partial run cannot pass for a full one. |
+| `--threads <N>` | no | Parallelise the GBT scoring. Default 1 (the farm path, streaming). Output is byte-identical to `--threads 1` for any N. `N>1` buffers events — bounded runs only. |
+| `--partition-target <N>` | no | Approx events per reproducible partition (default 200000). A granularity knob, not a correctness knob. |
 
 **Exit codes:** `0` ok · `1` usage · `2` no run number found · `3` **no GBT model
 covers this run** · `4` general · `5` file holds more than one run.
@@ -215,6 +252,7 @@ unrecoverable.
 | `--na WxH` | no | Override `binning.grid_a`, e.g. `8x7`. See the warning below. |
 | `--nb WxH` | no | Override `binning.grid_b`, e.g. `5x5`. Ditto. |
 | `--max-events <N>` | no | Stop after N events across all inputs. A **prefix**, not a random subset — the edges are then not the edges of the full dataset. Stamped into the output. |
+| `--threads <N>` | no | Read input files in parallel. Default 1. Edges are identical for any N (they are quantiles of the pooled sample). `--max-events` forces single-threaded so truncation stays a deterministic prefix. |
 | `--cap-z <v>` | no | Clamp Grid B's top $z$ edge and **discard** π⁰ above it. |
 | `--cap-pt2 <v>` | no | The same for $p_T^2$, in GeV². |
 
@@ -260,6 +298,8 @@ seeded pre-pass; pass 1 bins, with mixing reduced to a stateless lookup against 
 | `--grid-a <json>` | yes | The frozen $(Q^2,x_B)$ grid. Its hash is stamped into the output. |
 | `--grid-b <json>` | yes | The frozen $(z,p_T^2)$ grid. Ditto. |
 | `--max-events <N>` | no | Stop after N entries **in total across all inputs**, not per input. **Both passes are truncated identically** — a pool built from more events than were binned would estimate the background from a sample the spectra never saw. |
+| `--threads <N>` | no | Parallelise pass 1. Default 1. The four output trees are byte-identical for any N — a fixed-partition compensated reduction, independent of thread count. |
+| `--partition-target <N>` | no | Approx events per partition (default 200000). Granularity/tuning only; does not affect the output. |
 | `--allow-truncated-inputs` | no | Accept an input that Stage A itself marked truncated. Off by default; see below. |
 
 **Give a target all of its slims in one run.** The donor pool is a reservoir per
