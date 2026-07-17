@@ -119,3 +119,34 @@ If you think you need to patch hipo-cpp, add the workaround to the top-level
 - **Angles are in DEGREES at any public boundary.** If a function takes radians
   its parameter *must* be named `*_rad` and say so in its doc comment. (The
   analysis this replaces shipped two separate degree/radian bugs. Be explicit.)
+
+## Licence
+
+**LGPL v3.0** — see [`COPYING.LESSER`](COPYING.LESSER) (the LGPL v3 supplement)
+and [`COPYING`](COPYING) (the GPL v3 text it builds on). LGPL v3 consists of
+both texts together.
+
+This is not a free choice. `src/photonid/models/` contains five generated
+CatBoost models that are byte-for-byte CLAS12/Iguana products distributed under
+LGPL v3, and they are incorporated into this work rather than linked as a
+separate library — so the combined work is distributed under the same terms.
+See [`NOTICE`](NOTICE) for the full attribution of every vendored component, and
+[`src/photonid/models/PROVENANCE.md`](src/photonid/models/PROVENANCE.md) for the
+models specifically.
+
+## Status
+
+Pre-publication. **Nothing produced by this code is quotable yet**, and the
+outputs say so themselves — every file carries a provenance block recording its
+inputs, config hash, grid hashes, the photon model used and whether the RG-A
+fallback was taken.
+
+Known blockers, all recorded in the provenance or the config rather than in
+someone's memory:
+
+- `config/binning/*.json` are **placeholders**. Real grids come from `make_grid`
+  run over real RG-D slims.
+- **No GBT photon model exists for RG-D** (the map stops at run 16772). The
+  RG-A fallback refuses by default and must be opted into explicitly.
+- The **beam polarisation** is not set; the BSA cannot be quoted without it.
+- **No systematic uncertainty is evaluated.**

@@ -1,0 +1,75 @@
+NOTICE
+======
+
+This product includes software developed by third parties. The origin and
+licence of each vendored component is recorded below.
+
+
+1. CatBoost photon-identification models  (src/photonid/models/)
+---------------------------------------------------------------
+
+Files:
+    RGA_inbending_pass1.hpp
+    RGA_inbending_pass2.hpp
+    RGA_outbending_pass1.hpp
+    RGA_outbending_pass2.hpp
+    RGC_Summer2022_pass1.hpp
+
+These are generated CatBoost gradient-boosted-tree models used to identify
+photons in the CLAS12 electromagnetic calorimeter. They are trained CLAS12
+products, distributed as part of:
+
+    Iguana -- Implementation Guardian of Analysis Algorithms
+    https://github.com/JeffersonLab/iguana
+    Jefferson Lab, Hall B / CLAS12 Collaboration
+    Licensed under the GNU Lesser General Public License v3.0
+
+specifically as
+    src/iguana/algorithms/clas12/PhotonGBTFilter/models/*.cpp
+
+The copies in this repository are byte-for-byte identical in payload to
+Iguana's: 203,339 numeric tokens per model, verified token-by-token. They
+reached this repository via an intermediate copy, but Iguana is their origin
+and the licence above is the one that governs them.
+
+They are unmodified. Only the file extension differs (.cpp -> .hpp), because
+here they are included rather than compiled as separate translation units.
+
+Because these files are incorporated into this work, this repository is
+distributed under the LGPL v3.0 as well -- see COPYING.LESSER (the LGPL v3
+supplement) and COPYING (the GPL v3 text it builds on). LGPL v3 consists of
+both.
+
+
+2. hipo-cpp  (external/hipo-cpp, git submodule)
+-----------------------------------------------
+
+    HIPO -- High Performance Output
+    https://code.jlab.org/hallb/clas12/hipo-cpp
+    Originally developed by Gagik Gavalian, Jefferson Lab
+
+Included as a git submodule pinned at commit 188b373, not vendored into this
+tree. Its own licence applies; see that repository.
+
+
+3. Vertex-correction parameters  (data/Vz/vz_corrector_params.txt)
+------------------------------------------------------------------
+
+Per-cell vertex-correction coefficients for the CLAS12 RG-D solid targets,
+copied verbatim from the clas-framework analysis repository. CLAS12
+collaboration product.
+
+
+4. Cut values and parameter tables  (config/cuts.json, src/selection/)
+----------------------------------------------------------------------
+
+The electron sampling-fraction polynomials, vertex windows, fiducial cuts and
+DIS cuts are CLAS12 RG-D analysis parameters, transcribed from the
+clas-framework analysis repository. They are physics constants of the
+experiment rather than original software.
+
+
+---
+
+If you are the maintainer of any of the above and this attribution is wrong or
+insufficient, please open an issue -- it will be corrected.
