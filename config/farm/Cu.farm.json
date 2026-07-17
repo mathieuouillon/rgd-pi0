@@ -14,8 +14,8 @@
     "_files_per_job_comment": "1, matching clas-framework's scripts/swif2_pi0_skim.py -- the submitter that actually ran this skim, whose defaults are files-per-job 1, cores 1, ram 4G, disk 20G, time 4h. THE TIME LIMIT IS CALIBRATED PER FILE: raising files_per_job without raising `time` in step gives jobs that are killed at the limit. (clas-framework's general pi0.farm.toml pairs files_per_job 5 with time 16:00:00 -- the same ratio, roughly.) stageA_skim takes ONE HIPO file per invocation regardless (it exits 5 on a multi-run file), so a chunk >1 just means the job wrapper loops and writes slim_0..slim_N-1.root. Chunks never span runs.",
     "exclude_runs": [],
     "_exclude_runs_comment": "Runs to drop from the run list, with a stated reason, e.g. a known bad run. Empty means the run list is taken as-is. runs.json records special_DC_runs_CuSn (18358-18368) but those are inbending and are not in the outbending list anyway.",
-    "output_dir": "/volatile/clas12/users/ouillon/rgd-pi0/Cu",
-    "log_dir": "/volatile/clas12/users/ouillon/rgd-pi0/Cu/logs",
+    "output_dir": "/volatile/clas12/ouillon/rgd-pi0/Cu",
+    "log_dir": "/volatile/clas12/ouillon/rgd-pi0/Cu/logs",
     "_output_comment": "Slims land at <output_dir>/<run>/<job>/slim_<i>.root and logs at <log_dir>/<job>.log. SWIF2's -output does NOT create the parent directory, so the generated script mkdir -p's each one; without that the copy back is simply lost.",
     "swif2": {
       "workflow": "rgd_pi0_stageA_Cu_outbending",
