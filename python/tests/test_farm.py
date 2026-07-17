@@ -15,6 +15,8 @@ import pytest
 
 from pi0.farm import (
     TARGET_TO_RUNLIST,
+    job_inputs,
+    must_stage,
     Chunk,
     FarmConfigError,
     InputFile,
@@ -461,20 +463,21 @@ def test_every_input_and_output_is_staged(tmp_path):
 def test_wrapper_is_valid_bash(tmp_path):
     cfg = load_farm_config(_cfg(tmp_path))
     p = tmp_path / "w.sh"
-    p.write_text(stagea_wrapper(cfg, 3, "./stageA"))
+    p.write_text(stagea_wrapper(cfg, ['input_0.hipo','input_1.hipo','input_2.hipo'], "./stageA"))
     assert subprocess.run(["bash", "-n", str(p)]).returncode == 0
 
 
 def test_wrapper_runs_the_skim_once_per_staged_file(tmp_path):
     """stageA_skim takes ONE file per invocation, so the wrapper loops."""
     cfg = load_farm_config(_cfg(tmp_path))
-    w = stagea_wrapper(cfg, 5, "./stageA")
-    assert "seq 0 4" in w
+    w = stagea_wrapper(cfg, [f'input_{i}.hipo' for i in range(5)], "./stageA")
+    for i in range(5):
+        assert f"input_{i}.hipo" in w, "every staged file must be opened"
 
 
 def test_wrapper_does_not_set_e_so_one_bad_file_does_not_abandon_the_chunk(tmp_path):
     cfg = load_farm_config(_cfg(tmp_path))
-    w = stagea_wrapper(cfg, 3, "./stageA")
+    w = stagea_wrapper(cfg, ['input_0.hipo','input_1.hipo','input_2.hipo'], "./stageA")
     assert "set -uo pipefail" in w
     assert "set -euo pipefail" not in w
     assert "exit $rc" in w
@@ -483,7 +486,7 @@ def test_wrapper_does_not_set_e_so_one_bad_file_does_not_abandon_the_chunk(tmp_p
 def test_wrapper_explains_exit_3(tmp_path):
     """A wall of bare 'exit 3' is a mystery; on RG-D it is the expected refusal."""
     cfg = load_farm_config(_cfg(tmp_path))
-    w = stagea_wrapper(cfg, 1, "./stageA")
+    w = stagea_wrapper(cfg, ['input_0.hipo'], "./stageA")
     assert "$s -eq 3" in w
     assert "allow_rga_fallback" in w
 
@@ -499,7 +502,7 @@ def test_wrapper_runs_the_exe_in_a_job_dir_that_is_not_the_checkout(tmp_path):
     (job / "cuts.json").touch()
 
     # A relative exe, as the old default was.
-    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 1, "./build/src/stageA_skim/stageA_skim"))
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, ['input_0.hipo'], "./build/src/stageA_skim/stageA_skim"))
     r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
                        env={"PATH": "/usr/bin:/bin"})
     assert r.returncode == 127, "a relative exe must fail in a job dir -- that is the bug"
@@ -508,7 +511,7 @@ def test_wrapper_runs_the_exe_in_a_job_dir_that_is_not_the_checkout(tmp_path):
     fake = tmp_path / "stageA_fake"
     fake.write_text("#!/usr/bin/env bash\nexit 0\n")
     fake.chmod(0o755)
-    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 1, str(fake)))
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, ['input_0.hipo'], str(fake)))
     r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
                        env={"PATH": "/usr/bin:/bin"})
     assert r.returncode == 0, f"absolute exe should run: {r.stderr}"
@@ -522,7 +525,7 @@ def test_wrapper_propagates_the_skim_exit_code(tmp_path):
     fake = tmp_path / "stageA_exit3"
     fake.write_text("#!/usr/bin/env bash\nexit 3\n")
     fake.chmod(0o755)
-    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 1, str(fake)))
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, ['input_0.hipo'], str(fake)))
     r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
                        env={"PATH": "/usr/bin:/bin"})
     assert r.returncode == 3, "SWIF2 must see the job as failed"
@@ -536,11 +539,11 @@ def test_wrapper_missing_staged_input_does_not_pass_silently(tmp_path):
     fake = tmp_path / "stageA_ok"
     fake.write_text("#!/usr/bin/env bash\nexit 0\n")
     fake.chmod(0o755)
-    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 1, str(fake)))
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, ['input_0.hipo'], str(fake)))
     r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
                        env={"PATH": "/usr/bin:/bin"})
     assert r.returncode == 4
-    assert "MISSING STAGED INPUT" in r.stderr
+    assert "INPUT NOT READABLE" in r.stderr
 
 
 def test_wrapper_one_bad_file_does_not_abandon_the_rest_of_the_chunk(tmp_path):
@@ -555,7 +558,7 @@ def test_wrapper_one_bad_file_does_not_abandon_the_rest_of_the_chunk(tmp_path):
     fake.write_text('#!/usr/bin/env bash\necho "$2" >> seen.txt\n'
                     '[[ "$2" == "input_0.hipo" ]] && exit 3\nexit 0\n')
     fake.chmod(0o755)
-    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, 3, str(fake)))
+    (job / "wrapper.sh").write_text(stagea_wrapper(cfg, ['input_0.hipo','input_1.hipo','input_2.hipo'], str(fake)))
     r = subprocess.run(["bash", "wrapper.sh"], cwd=job, capture_output=True, text=True,
                        env={"PATH": "/usr/bin:/bin"})
     seen = (job / "seen.txt").read_text().split()
@@ -654,6 +657,71 @@ def test_wrapper_loads_modules_and_exports_env(tmp_path):
     doc["farm"]["env"] = {"ROOT_HIST": "0"}
     p.write_text(json.dumps(doc))
     cfg = load_farm_config(p)
-    w = stagea_wrapper(cfg, 1, "./stageA")
+    w = stagea_wrapper(cfg, ['input_0.hipo'], "./stageA")
     assert "module load root/6.36.04" in w
     assert "export ROOT_HIST=0" in w
+
+
+# ---------------------------------------------------------------------------
+# Staging: -input COPIES, so only tape may be staged
+# ---------------------------------------------------------------------------
+
+
+def test_only_tape_is_staged():
+    """A /cache train skim is ~200 GB. Staging one puts a 202 GB copy into a job
+    that asked for 20 GB of disk -- observed on the first real submission, where
+    both jobs sat in `preparing` (= staging) and could never have fitted. The
+    node reads Lustre directly instead."""
+    assert must_stage("/mss/clas12/rg-d/x/rec_clas_018431.evio.00000-00004.hipo")
+    assert must_stage("/w/mss/clas12/x.hipo")             # what /mss resolves to
+    assert not must_stage("/cache/clas12/rg-d/x/SIDIS_018431.hipo")
+    assert not must_stage("/lustre24/expphy/cache/clas12/x.hipo")
+    assert not must_stage("/volatile/clas12/ouillon/x.hipo")
+    assert not must_stage("/work/clas12b/users/ouillon/x.hipo")
+
+
+def test_job_inputs_stages_tape_and_reads_disk_directly():
+    ch = chunk_inputs([
+        InputFile("/cache/clas12/rg-d/x/SIDIS_018431.hipo", 18431),
+        InputFile("/mss/clas12/rg-d/x/rec_clas_018431.evio.00000-00004.hipo", 18431),
+    ], 2)[0]
+    assert job_inputs(ch) == [
+        "/cache/clas12/rg-d/x/SIDIS_018431.hipo",   # read in place
+        "input_1.hipo",                             # staged from tape
+    ]
+
+
+def test_swif2_does_not_stage_a_cache_input(tmp_path):
+    cfg = load_farm_config(_cfg(tmp_path))
+    ch = chunk_inputs([InputFile(_train(18431), 18431)], 1)
+    s = swif2_script(cfg, ch, scripts_dir=tmp_path, exe="/work/x/stageA",
+                     cuts_path=CONFIG_DIR / "cuts.json")
+    assert "-input input_0.hipo" not in s, "a /cache file must not be copied to the node"
+
+
+def test_swif2_does_stage_an_mss_input(tmp_path):
+    cfg = load_farm_config(_cfg(tmp_path))
+    ch = chunk_inputs([InputFile(_dst(18419), 18419)], 1)
+    s = swif2_script(cfg, ch, scripts_dir=tmp_path, exe="/work/x/stageA",
+                     cuts_path=CONFIG_DIR / "cuts.json")
+    assert f"-input input_0.hipo {_dst(18419)}" in s, "a /mss file is on tape and must be staged"
+
+
+def test_wrapper_opens_the_cache_path_directly(tmp_path):
+    cfg = load_farm_config(_cfg(tmp_path))
+    ch = chunk_inputs([InputFile(_train(18431), 18431)], 1)[0]
+    w = stagea_wrapper(cfg, job_inputs(ch), "/work/x/stageA")
+    assert _train(18431) in w
+    assert "input_0.hipo" not in w
+
+
+def test_partition_and_time_overrides_reach_the_script(tmp_path):
+    from dataclasses import replace as dc_replace
+    cfg = load_farm_config(_cfg(tmp_path))
+    cfg = dc_replace(cfg, swif2=dc_replace(cfg.swif2, partition="priority", time="01:00:00"))
+    ch = chunk_inputs([InputFile(_train(18431), 18431)], 1)
+    s = swif2_script(cfg, ch, scripts_dir=tmp_path, exe="/work/x/stageA",
+                     cuts_path=CONFIG_DIR / "cuts.json")
+    assert "-partition priority" in s
+    assert "-time 3600s" in s
+    assert "production" not in s

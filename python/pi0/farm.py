@@ -80,6 +80,9 @@ __all__ = [
     "chunk_inputs",
     "format_swif2_time",
     "swif2_script",
+    "stagea_wrapper",
+    "job_inputs",
+    "must_stage",
 ]
 
 
@@ -493,8 +496,52 @@ def _q(s: str) -> str:
     return shlex.quote(str(s))
 
 
-def stagea_wrapper(cfg: FarmConfig, n_staged: int, exe: str, max_events: int | None = None) -> str:
+#: Only /mss is tape. Everything else in the farm's namespace is a mounted
+#: cluster filesystem that a worker node reads directly, so SWIF2 must NOT be
+#: asked to stage it -- see :func:`must_stage`.
+_TAPE = ("/mss/", "/w/mss/")
+
+
+def must_stage(path: str) -> bool:
+    """Does SWIF2 have to copy this input to the node, or can the node read it?
+
+    ``-input`` COPIES. For a /mss path that is the whole point: the file is on
+    tape and must be brought to disk. For /cache, /work and /volatile it is
+    waste, and for RG-D it is fatal waste -- a train skim is ~200 GB
+    (SIDIS_018431.hipo, measured), so staging one puts a 202 GB copy into a job
+    that asked for 20 GB of disk and reads 2000 events. Observed: both jobs of
+    the first submission sat in `preparing` (= staging) with
+    site_job_disk_bytes = 20000000000 and local = input_0.hipo.
+
+    A node-visible input is passed to the skim as its own absolute path instead,
+    read straight off Lustre. No copy, no disk request, no staging wait.
+    """
+    return any(str(path).startswith(t) for t in _TAPE)
+
+
+def job_inputs(chunk: "Chunk") -> list[str]:
+    """What the skim opens, per file of a chunk, in job order.
+
+    THE ONE PLACE that decides staged-name vs absolute-path. swif2_script emits
+    ``-input`` for exactly the entries this returns as staged names, and
+    stagea_wrapper opens exactly what this returns -- they cannot disagree
+    because they call the same function.
+    """
+    return [f"input_{j}.hipo" if must_stage(f.path) else f.path
+            for j, f in enumerate(chunk.files)]
+
+
+def stagea_wrapper(
+    cfg: FarmConfig,
+    inputs: Sequence[str],
+    exe: str,
+    max_events: int | None = None,
+) -> str:
     """The per-job script SWIF2 runs on the node.
+
+    ``inputs`` is what the skim should open, in job order: either a staged name
+    (``input_0.hipo``, relative to the job's scratch dir) for a tape input, or an
+    absolute path for one the node reads directly. :func:`must_stage` decides.
 
     ``max_events`` caps each skim. It is for smoke tests -- an RG-D train skim is
     ~200 GB, so an unbounded job against one is a long, expensive way to discover
@@ -522,14 +569,22 @@ def stagea_wrapper(cfg: FarmConfig, n_staged: int, exe: str, max_events: int | N
         lines.append(f"module load {_q(mod)}")
     for k, v in sorted(cfg.env.items()):
         lines.append(f"export {k}={_q(v)}")
+    # The input list is written out rather than derived from a counter: a job may
+    # mix a staged name with an absolute Lustre path, and only the generator
+    # knows which is which.
+    lines += ["", "inputs=("]
+    lines += [f"    {_q(i)}" for i in inputs]
     lines += [
+        ")",
         "",
         "rc=0",
-        f"for i in $(seq 0 {n_staged - 1}); do",
-        '    in="input_${i}.hipo"',
+        'for i in "${!inputs[@]}"; do',
+        '    in="${inputs[$i]}"',
         '    out="slim_${i}.root"',
         '    if [[ ! -f "$in" ]]; then',
-        '        echo "MISSING STAGED INPUT: $in" >&2',
+        '        echo "INPUT NOT READABLE: $in" >&2',
+        '        echo "  A staged name means SWIF2 did not deliver it; an absolute path means the" >&2',
+        '        echo "  node cannot see that filesystem." >&2',
         "        rc=4; continue",
         "    fi",
         f"    {_q(exe)} --input \"$in\" --output \"$out\" \\",
@@ -597,8 +652,12 @@ def swif2_script(
         for k in sorted(sw.tags):
             parts.append(f"    -tag {_q(k)} {_q(sw.tags[k])}")
         parts.append(f"    -tag 'target' {_q(cfg.target)} -tag 'run' {_q(str(run))}")
+        # Stage ONLY what the node cannot read. -input copies, and for a ~200 GB
+        # train skim on /cache that copy is both pointless and larger than the
+        # job's whole disk request.
         for j, f in enumerate(ch.files):
-            parts.append(f"    -input {_q(f'input_{j}.hipo')} {_q(f.path)}")
+            if must_stage(f.path):
+                parts.append(f"    -input {_q(f'input_{j}.hipo')} {_q(f.path)}")
         parts.append(f"    -input 'cuts.json' {_q(str(cuts_path.resolve()))}")
         parts.append(f"    -input 'wrapper.sh' {_q(str((scripts_dir / f'{job}.wrapper.sh').resolve()))}")
         for j in range(len(ch.files)):

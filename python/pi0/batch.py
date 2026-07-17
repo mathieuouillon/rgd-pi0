@@ -49,6 +49,7 @@ from pathlib import Path
 from .farm import (
     FarmConfigError,
     RunListError,
+    job_inputs,
     chunk_inputs,
     config_sha256,
     discover_inputs,
@@ -238,6 +239,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="where the wrapper + swif2 scripts are written (default: batch_scripts)")
     p.add_argument("--files-per-job", type=int, default=None, help="override farm/files_per_job")
     p.add_argument("--workflow", default=None, help="override farm/swif2/workflow")
+    p.add_argument("--partition", default=None,
+                   help="override farm/swif2/partition. 'priority' is the fast-turnaround queue -- "
+                        "use it for smoke tests; leave production runs on 'production'.")
+    p.add_argument("--time", default=None,
+                   help="override farm/swif2/time, e.g. 01:00:00. Converted to SWIF2's seconds form; "
+                        "a malformed value is refused here rather than by the scheduler after submit.")
     p.add_argument("--max-jobs", type=int, default=None, help="synthesize at most N jobs (for testing)")
     p.add_argument("--max-events", type=int, default=None,
                    help="cap each skim at N events. FOR SMOKE TESTS: an RG-D train skim is ~200 GB, "
@@ -259,8 +266,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
+    sw_over = {}
     if args.workflow:
-        cfg = replace(cfg, swif2=replace(cfg.swif2, workflow=args.workflow))
+        sw_over["workflow"] = args.workflow
+    if args.partition:
+        sw_over["partition"] = args.partition
+    if args.time:
+        format_swif2_time(args.time, where="--time")  # refuse now, not on the farm
+        sw_over["time"] = args.time
+    if sw_over:
+        cfg = replace(cfg, swif2=replace(cfg.swif2, **sw_over))
     fpj = args.files_per_job or cfg.files_per_job
     cuts_path = args.config / "cuts.json"
 
@@ -380,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
     for ch in chunks:
         job = f"{cfg.swif2.workflow}_{ch.name_suffix}"
         (scripts_dir / f"{job}.wrapper.sh").write_text(
-            stagea_wrapper(cfg, len(ch.files), exe_abs, max_events=args.max_events))
+            stagea_wrapper(cfg, job_inputs(ch), exe_abs, max_events=args.max_events))
 
     script = swif2_script(cfg, chunks, scripts_dir=scripts_dir, exe=exe_abs, cuts_path=cuts_path)
     script_path = scripts_dir / f"{cfg.swif2.workflow}.swif2.sh"
