@@ -28,6 +28,23 @@ namespace pi0::selection {
 /// Cuts::load() verifies cuts.json's `photon.pid` still agrees.
 inline constexpr int kPdgPhoton = 22;
 
+/// Energy of a photon, GeV.
+///
+///     E = |p|
+///
+/// Photons are massless by convention here, and no calorimeter energy correction
+/// is applied anywhere in this chain (cuts.json records the fitted peak sitting
+/// ~4.4% low as the consequence).
+///
+/// Exposed rather than left inline in pass_photon_scored() because it is the
+/// number the pre-filter compares against min_energy_gev, and a diagnostic that
+/// wants to draw that comparison must record the value the cut saw. A second
+/// sqrt at the plotting site would agree today and be a second implementation of
+/// the energy tomorrow.
+[[nodiscard]] inline double photon_energy_gev(double px, double py, double pz) {
+    return std::sqrt(px * px + py * py + pz * pz);
+}
+
 /// Polar angle of a photon, DEGREES.
 ///
 /// \return NaN for an identically-zero momentum vector, which has no direction.
@@ -115,7 +132,7 @@ template <typename ScoreFn>
                                       const Cuts& cuts) {
     if (pid != kPdgPhoton) return false;
 
-    const double e_gamma_gev = std::sqrt(px * px + py * py + pz * pz);  // massless: E = |p|
+    const double e_gamma_gev = photon_energy_gev(px, py, pz);
     if (!passes_gbt_prefilter(e_gamma_gev, pcal_energy_gev, photon_theta_deg(px, py, pz), cuts)) {
         return false;
     }

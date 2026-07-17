@@ -52,6 +52,25 @@ test(
   suite: 'unit',
 )
 
+# The order-stable summation that lets Stage B run multi-threaded without its
+# abscissa depending on the thread count. Pure arithmetic, header-only; no data.
+test_summation_exe = executable(
+  'test_summation',
+  sources: files('test_summation.cpp'),
+  dependencies: [pi0_core_dep, catch2_dep],
+  install: false,
+  override_options: ['warning_level=3'],
+)
+
+test(
+  'summation',
+  test_summation_exe,
+  timeout: 30,
+  protocol: 'tap',
+  args: ['--reporter', 'tap'],
+  suite: 'unit',
+)
+
 # ---------------------------------------------------------------------------
 # test_vertex -- the vz correction (src/vertex).
 #

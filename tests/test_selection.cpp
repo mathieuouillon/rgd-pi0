@@ -962,6 +962,92 @@ TEST_CASE("cutflow labels are derived from the config, and cannot go stale", "[e
     }
 }
 
+TEST_CASE("electron_stage_index puts failed_at on the cutflow's own axis", "[electron][label]") {
+    // stageA_skim's --qa-ntuple writes this index for every electron candidate,
+    // and the cutflow rows it has to line up against are built by iterating
+    // kElectronStages. These pin that the two cannot come apart -- a QA plot
+    // whose bars name the wrong cuts still plots.
+    const pi0::Cuts& c = shipped_cuts();
+
+    SECTION("the index is the position in kElectronStages") {
+        for (std::size_t i = 0; i < sel::kElectronStages.size(); ++i) {
+            INFO("stage = " << sel::kElectronStages[i]);
+            CHECK(sel::electron_stage_index(sel::kElectronStages[i]) == static_cast<int>(i));
+        }
+    }
+
+    SECTION("the order is the order pass_electron applies the cuts") {
+        // Spelled out rather than derived from the array, so that reordering
+        // kElectronStages away from the short-circuit sequence in
+        // pass_electron() fails here instead of silently relabelling every
+        // cutflow and every QA figure drawn from one.
+        CHECK(sel::electron_stage_index(sel::electron_stage::kChi2Pid) == 0);
+        CHECK(sel::electron_stage_index(sel::electron_stage::kMomentum) == 1);
+        CHECK(sel::electron_stage_index(sel::electron_stage::kVertex) == 2);
+        CHECK(sel::electron_stage_index(sel::electron_stage::kSamplingFraction) == 3);
+        CHECK(sel::electron_stage_index(sel::electron_stage::kPcalFiducial) == 4);
+        CHECK(sel::electron_stage_index(sel::electron_stage::kDcEdge) == 5);
+    }
+
+    SECTION("a passing verdict is -1, and -1 is not a stage") {
+        // 0 is chi2pid. A -1 that ever drifted to 0 would report every surviving
+        // electron as rejected by the first cut.
+        const auto result = make_good_electron(c).apply(c);
+        REQUIRE(result.passed);
+        REQUIRE(result.failed_at == nullptr);
+        CHECK(sel::electron_stage_index(result.failed_at) == -1);
+        CHECK(sel::electron_stage_index(nullptr) == -1);
+    }
+
+    SECTION("the index names the stage that did the rejecting") {
+        auto e = make_good_electron(c);
+        e.pcal_lv_cm = 0.0;
+        const auto result = e.apply(c);
+        REQUIRE(result.failed_at != nullptr);
+
+        const int idx = sel::electron_stage_index(result.failed_at);
+        REQUIRE(idx >= 0);
+        CHECK(std::string(sel::kElectronStages[static_cast<std::size_t>(idx)]) ==
+              std::string(result.failed_at));
+    }
+
+    SECTION("every stage a rejection can report has an index") {
+        // The counterpart of the label test above: a stage constant that
+        // kElectronStages forgot would throw here rather than be written into a
+        // QA file as some other cut's index.
+        const auto spoil = [&](auto&& mutate) {
+            auto e = make_good_electron(c);
+            mutate(e);
+            const auto result = e.apply(c);
+            REQUIRE(result.failed_at != nullptr);
+            CHECK_NOTHROW(sel::electron_stage_index(result.failed_at));
+        };
+        spoil([](GoodElectron& e) { e.chi2pid = 99.0; });
+        spoil([](GoodElectron& e) { e.p_gev = 0.1; });
+        spoil([](GoodElectron& e) { e.vertex_passed = false; });
+        spoil([](GoodElectron& e) { e.sampling_fraction = 0.0; });
+        spoil([](GoodElectron& e) { e.pcal_lv_cm = 0.0; });
+        spoil([](GoodElectron& e) { e.dc_edge_r1_cm = 0.0; });
+    }
+
+    SECTION("an unknown stage throws rather than reporting a pass") {
+        // -1 means "survived every cut". An unrecognised identifier quietly
+        // becoming -1 would turn rejected candidates into surviving ones, and
+        // the resulting file would look entirely normal.
+        CHECK_THROWS_AS(sel::electron_stage_index("not_a_stage"), std::invalid_argument);
+        CHECK_THROWS_AS(sel::electron_stage_index(""), std::invalid_argument);
+    }
+
+    SECTION("index and label agree about which stage they mean") {
+        for (const char* stage : sel::kElectronStages) {
+            const int idx = sel::electron_stage_index(stage);
+            REQUIRE(idx >= 0);
+            CHECK(sel::electron_cutflow_label(sel::kElectronStages[static_cast<std::size_t>(idx)], c) ==
+                  sel::electron_cutflow_label(stage, c));
+        }
+    }
+}
+
 // ===========================================================================
 // pass_photon
 // ===========================================================================
@@ -1147,6 +1233,24 @@ TEST_CASE("photon energy is |p|: massless", "[photon]") {
     zero.px = zero.py = zero.pz = 0.0;
     CHECK_FALSE(zero.apply(c));
     CHECK(std::isnan(sel::photon_theta_deg(0.0, 0.0, 0.0)));
+
+    // photon_energy_gev() is the same |p|, exposed so that a diagnostic can
+    // record the number the energy floor compared against rather than a second
+    // sqrt of its own. 3-4-5 and 1-2-2 are exact in binary floating point, so
+    // these are equalities and not tolerances.
+    CHECK_THAT(sel::photon_energy_gev(3.0, 4.0, 0.0), WithinAbs(5.0, 1e-12));
+    CHECK_THAT(sel::photon_energy_gev(1.0, 2.0, 2.0), WithinAbs(3.0, 1e-12));
+    CHECK_THAT(sel::photon_energy_gev(0.0, 0.0, 0.0), WithinAbs(0.0, 1e-12));
+    // Sign-independent: it is a magnitude.
+    CHECK_THAT(sel::photon_energy_gev(-3.0, 0.0, -4.0), WithinAbs(5.0, 1e-12));
+
+    // AND IT IS THE VALUE THE PRE-FILTER USES, not merely a function that agrees
+    // with it today. A photon whose |p| sits either side of the floor must be
+    // decided the way this function reports it.
+    const auto below = photon_at(20.0, 0.199);
+    const auto above = photon_at(20.0, 0.201);
+    CHECK(sel::photon_energy_gev(below.px, below.py, below.pz) < c.photon.min_energy_gev);
+    CHECK(sel::photon_energy_gev(above.px, above.py, above.pz) > c.photon.min_energy_gev);
 }
 
 TEST_CASE("pass_photon_scored evaluates the model only when the pre-filter passes",

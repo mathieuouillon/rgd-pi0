@@ -61,6 +61,17 @@ std::optional<std::size_t> find_trigger_electron(const ROOT::VecOps::RVec<int>& 
     return std::nullopt;
 }
 
+int electron_stage_index(const char* stage) {
+    if (stage == nullptr) return -1;  // ElectronCutResult::passed -- no stage rejected it
+
+    for (std::size_t i = 0; i < kElectronStages.size(); ++i) {
+        if (stage_is(stage, kElectronStages[i])) return static_cast<int>(i);
+    }
+
+    throw std::invalid_argument(
+        std::string("pi0::selection::electron_stage_index: unknown stage '") + stage + "'");
+}
+
 std::string electron_cutflow_label(const char* stage, const Cuts& cuts) {
     const auto& e = cuts.electron;
 

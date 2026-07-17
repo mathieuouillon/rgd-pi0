@@ -94,6 +94,26 @@ struct ElectronCutResult {
     const char* failed_at{};
 };
 
+/// The position of `stage` in kElectronStages, i.e. in the cutflow.
+///
+/// EXISTS SO THAT A CUTFLOW AND A PER-CANDIDATE DIAGNOSTIC CANNOT DISAGREE ABOUT
+/// WHICH CUT IS WHICH. stageA_skim's --qa-ntuple records this index for every
+/// electron candidate, and the cutflow rows it has to line up against are built
+/// by iterating this same array. Both read kElectronStages, so an index in a QA
+/// file names a cutflow row by construction rather than by the reader's
+/// assumption about what order the cuts were in. A second hand-maintained
+/// enumeration of the six stages is the drift this avoids.
+///
+/// \param stage  one of the electron_stage constants, or nullptr.
+/// \return the index, or -1 for nullptr -- i.e. for an ElectronCutResult that
+///         `passed`, and therefore failed at no stage. -1 rather than
+///         kElectronStages.size(), because "no stage" is not a stage.
+/// \throws std::invalid_argument if `stage` is non-null and is not one of
+///         kElectronStages -- the same refusal as electron_cutflow_label(), and
+///         for the same reason. Returning -1 there would report a rejected
+///         candidate as having passed everything.
+[[nodiscard]] int electron_stage_index(const char* stage);
+
 /// A human-readable cutflow row label for `stage`, with every threshold
 /// rendered FROM `cuts`.
 ///

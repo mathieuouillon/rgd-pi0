@@ -9,6 +9,31 @@
 // usage:
 //   stageA_skim --input <file.hipo> --output <slim.root> --config <cuts.json>
 //               --target <LD2|CxC|Cu|Sn> [--run <N>] [--max-events <N>]
+//               [--qa-ntuple <qa.root>]
+//
+// ---------------------------------------------------------------------------
+// WHY THERE IS A SECOND, OPT-IN OUTPUT (--qa-ntuple)
+// ---------------------------------------------------------------------------
+// The slim schema holds only what SURVIVED selection. It carries no vz, no
+// chi2pid, no sampling fraction, no PCAL lv/lw, no DC edge and no GBT score, so
+// the figures that show the selection working -- sampling fraction vs p with its
+// band, vz against the target window, the GBT score against its threshold --
+// cannot be drawn from it: every value those plots need is one the slim dropped,
+// and the rows they need are the rejected ones the slim never wrote.
+//
+// --qa-ntuple writes those PRE-CUT values to a separate file, one row per
+// CANDIDATE, recorded as the cuts are applied. It is DIAGNOSTIC ONLY and both
+// files' provenance says so: it is per-candidate rather than per-event, its
+// photon rows exist only for events that already passed the electron and DIS
+// cuts, and nothing in it is a yield.
+//
+// It RECORDS the selection; it does not re-run it. Every number written below
+// comes out of the same call the skim decides on -- pass_electron()'s verdict,
+// the score the GBT threshold was compared against, the lv/lw handed to the
+// fiducial cut. src/stageB_bin/main.cxx documents what the alternative costs:
+// its duplicated e-gamma filter means "the pool is drawn from a different photon
+// population than the spectra it models". A QA plot drawn from a second
+// implementation illustrates a selection that never ran.
 //
 // ---------------------------------------------------------------------------
 // WHY >= 1 PHOTON AND NOT >= 2
@@ -137,13 +162,16 @@ struct Args {
     /// RDataFrame::Range takes; parse_args range-checks into it rather than
     /// letting a huge --max-events wrap around into a small one.
     std::optional<unsigned int> max_events;
+    /// Second, DIAGNOSTIC-ONLY output: per-candidate pre-cut values. nullopt =
+    /// not requested, and nothing about the run changes.
+    std::optional<std::string> qa_ntuple;
 };
 
 void print_usage(const char* argv0) {
     std::cerr
         << "usage: " << argv0 << " --input <file.hipo> --output <slim.root>\n"
         << "                        --config <cuts.json> --target <LD2|CxC|Cu|Sn>\n"
-        << "                        [--run <N>] [--max-events <N>]\n"
+        << "                        [--run <N>] [--max-events <N>] [--qa-ntuple <qa.root>]\n"
         << "\n"
         << "  --input       ONE HIPO file. Entry numbering restarts per file; do not chain inputs.\n"
         << "  --output      slim ROOT file to create (overwritten if it exists).\n"
@@ -157,7 +185,11 @@ void print_usage(const char* argv0) {
         << "                For smoke tests. The output is a PREFIX of the file, not a\n"
         << "                sample of it, so it is not a physics-representative subset --\n"
         << "                the truncation is stamped into the provenance and the cutflow\n"
-        << "                so a partial run cannot be mistaken for a full one.\n";
+        << "                so a partial run cannot be mistaken for a full one.\n"
+        << "  --qa-ntuple   also write a DIAGNOSTIC-ONLY file of per-candidate PRE-CUT values\n"
+        << "                (trees \"qa_electron\" and \"qa_photon\"), for plotting the selection\n"
+        << "                and what each cut removes. Omitting it changes nothing about the\n"
+        << "                slim. Rows are CANDIDATES, not events: take no yield from it.\n";
 }
 
 /// \throws std::runtime_error on any malformed or missing argument.
@@ -210,6 +242,8 @@ void print_usage(const char* argv0) {
                     "). Omit the flag to process the whole file.");
             }
             a.max_events = static_cast<unsigned int>(n);
+        } else if (flag == "--qa-ntuple") {
+            a.qa_ntuple = value();
         } else {
             throw std::runtime_error("unknown argument \"" + flag + "\"");
         }
@@ -219,6 +253,13 @@ void print_usage(const char* argv0) {
     if (a.output.empty()) throw std::runtime_error("--output is required");
     if (a.config.empty()) throw std::runtime_error("--config is required");
     if (a.target.empty()) throw std::runtime_error("--target is required");
+    // Two RECREATEs on one path leaves whichever closed last, so the slim would
+    // be silently replaced by a diagnostic file that looks nothing like it.
+    if (a.qa_ntuple.has_value() && *a.qa_ntuple == a.output) {
+        throw std::runtime_error(
+            "--qa-ntuple and --output name the same file (\"" + a.output +
+            "\"). The QA ntuple is a separate diagnostic file, not a variant of the slim.");
+    }
     return a;
 }
 
@@ -473,6 +514,11 @@ int main(int argc, char* argv[]) {
                       << "           identified by a model trained on different data. The output's\n"
                       << "           provenance records this; any plot made from it must say so.\n";
         }
+        if (args.qa_ntuple.has_value()) {
+            std::cout << "  qa ntuple  : " << *args.qa_ntuple << "\n"
+                      << "           DIAGNOSTIC ONLY -- rows are CANDIDATES, not events. Nothing in it is a\n"
+                      << "           yield. The slim above is unaffected by its presence.\n";
+        }
 
         // ---- output --------------------------------------------------------
         // Created before the loop so a bad path fails now, not after the pass.
@@ -505,6 +551,148 @@ int main(int argc, char* argv[]) {
         tree->Branch("gpy", &b_gpy);
         tree->Branch("gpz", &b_gpz);
         tree->Branch("g_e_gamma_deg", &b_g_e_gamma_deg);
+
+        // ---- QA ntuple (--qa-ntuple), diagnostic only ------------------------
+        // =====================================================================
+        // ONE ROW PER CANDIDATE. NOT A YIELD. NOT PER EVENT.
+        // =====================================================================
+        // Flat scalar branches in TTrees, the same house pattern and for the same
+        // reason as stageB_bin's four output trees: uproot reads them into numpy
+        // with no ROOT installed and no dictionary.
+        //
+        // WHAT THESE ROWS ARE, exactly, because a QA file is read by whoever is
+        // debugging at the time and the counts must not be mistaken:
+        //
+        //   qa_electron -- one row per TRIGGER ELECTRON, i.e. per event that had
+        //     one at all (find_trigger_electron returns at most one row per
+        //     event). The row is filled BEFORE the verdict is acted on, so the
+        //     rejected ones are here. `failed_at` is the index of the cut that
+        //     rejected it, -1 if it survived all six.
+        //
+        //   qa_photon -- one row per pid == 22 row in REC::Particle, filled
+        //     before the GBT threshold is applied. THESE EXIST ONLY FOR EVENTS
+        //     THAT ALREADY PASSED THE ELECTRON AND DIS CUTS: the photon loop is
+        //     downstream of both, and hoisting it earlier would mean scoring the
+        //     GBT on events the skim discards. So this tree is a diagnostic of
+        //     the photon selection GIVEN a DIS event, not of photons in the file.
+        //
+        // Every value here comes out of the call that decided, never out of a
+        // second computation of it. See the header comment.
+        // =====================================================================
+        std::unique_ptr<TFile> qa_out;
+        TTree* qa_e_tree = nullptr;
+        TTree* qa_g_tree = nullptr;
+
+        int qe_run = 0, qe_sector = 0, qe_failed_at = 0;
+        std::int64_t qe_event = 0;
+        double qe_p = 0, qe_theta_deg = 0, qe_phi_deg = 0;
+        double qe_vz = 0, qe_vz_corrected = 0, qe_chi2pid = 0, qe_sf = 0;
+        double qe_pcal_e = 0, qe_ecin_e = 0, qe_ecout_e = 0, qe_pcal_lv = 0, qe_pcal_lw = 0;
+        double qe_dc_edge_r1 = 0, qe_dc_edge_r2 = 0, qe_dc_edge_r3 = 0;
+
+        int qg_run = 0, qg_passed = 0, qg_prefiltered = 0;
+        std::int64_t qg_event = 0;
+        double qg_e = 0, qg_theta_deg = 0, qg_phi_deg = 0, qg_gbt_score = 0;
+        double qg_pcal_e = 0, qg_pcal_lv = 0, qg_pcal_lw = 0, qg_beta = 0;
+
+        // Counted independently of n_electron_pass so the two can be checked
+        // against each other after the loop. See the check there.
+        long long n_qa_electron_passed = 0;
+
+        if (args.qa_ntuple.has_value()) {
+            // Opened here, before the loop, for the same reason the slim is: a
+            // bad path must fail now rather than after the pass.
+            qa_out.reset(TFile::Open(args.qa_ntuple->c_str(), "RECREATE"));
+            if (qa_out == nullptr || qa_out->IsZombie()) {
+                throw std::runtime_error("cannot create QA ntuple file: " + *args.qa_ntuple);
+            }
+            // TTree attaches itself to gDirectory. TFile::Open has already left the
+            // QA file current, but this program now has two files open and the
+            // slim's `tree` belongs to the other one, so the cd() is stated rather
+            // than inherited.
+            qa_out->cd();
+
+            qa_e_tree = new TTree("qa_electron",
+                                  "DIAGNOSTIC ONLY. One row per trigger-electron candidate, PRE-CUT: filled "
+                                  "before the verdict is acted on, so rejected candidates are here. failed_at "
+                                  "indexes qa_electron_stages; -1 = passed all six");
+            qa_e_tree->Branch("run", &qe_run, "run/I");
+            qa_e_tree->Branch("event", &qe_event, "event/L");
+            qa_e_tree->Branch("sector", &qe_sector, "sector/I");
+            qa_e_tree->Branch("p", &qe_p, "p/D");
+            qa_e_tree->Branch("theta_deg", &qe_theta_deg, "theta_deg/D");
+            qa_e_tree->Branch("phi_deg", &qe_phi_deg, "phi_deg/D");
+            qa_e_tree->Branch("vz", &qe_vz, "vz/D");
+            qa_e_tree->Branch("vz_corrected", &qe_vz_corrected, "vz_corrected/D");
+            qa_e_tree->Branch("chi2pid", &qe_chi2pid, "chi2pid/D");
+            qa_e_tree->Branch("sf", &qe_sf, "sf/D");
+            qa_e_tree->Branch("pcal_e", &qe_pcal_e, "pcal_e/D");
+            qa_e_tree->Branch("ecin_e", &qe_ecin_e, "ecin_e/D");
+            qa_e_tree->Branch("ecout_e", &qe_ecout_e, "ecout_e/D");
+            qa_e_tree->Branch("pcal_lv", &qe_pcal_lv, "pcal_lv/D");
+            qa_e_tree->Branch("pcal_lw", &qe_pcal_lw, "pcal_lw/D");
+            qa_e_tree->Branch("dc_edge_r1", &qe_dc_edge_r1, "dc_edge_r1/D");
+            qa_e_tree->Branch("dc_edge_r2", &qe_dc_edge_r2, "dc_edge_r2/D");
+            qa_e_tree->Branch("dc_edge_r3", &qe_dc_edge_r3, "dc_edge_r3/D");
+            qa_e_tree->Branch("failed_at", &qe_failed_at, "failed_at/I");
+
+            qa_g_tree = new TTree("qa_photon",
+                                  "DIAGNOSTIC ONLY. One row per pid == 22 candidate, PRE-THRESHOLD. Rows exist "
+                                  "ONLY for events that already passed the electron and DIS cuts. gbt_score is "
+                                  "NaN where prefiltered == 1: the GBT was never evaluated, so there is no score");
+            qa_g_tree->Branch("run", &qg_run, "run/I");
+            qa_g_tree->Branch("event", &qg_event, "event/L");
+            qa_g_tree->Branch("e", &qg_e, "e/D");
+            qa_g_tree->Branch("theta_deg", &qg_theta_deg, "theta_deg/D");
+            qa_g_tree->Branch("phi_deg", &qg_phi_deg, "phi_deg/D");
+            qa_g_tree->Branch("gbt_score", &qg_gbt_score, "gbt_score/D");
+            qa_g_tree->Branch("pcal_e", &qg_pcal_e, "pcal_e/D");
+            qa_g_tree->Branch("pcal_lv", &qg_pcal_lv, "pcal_lv/D");
+            qa_g_tree->Branch("pcal_lw", &qg_pcal_lw, "pcal_lw/D");
+            qa_g_tree->Branch("beta", &qg_beta, "beta/D");
+            qa_g_tree->Branch("prefiltered", &qg_prefiltered, "prefiltered/I");
+            qa_g_tree->Branch("passed", &qg_passed, "passed/I");
+
+            // --- qa_electron_stages: the failed_at -> cut mapping -------------
+            // Written into the file rather than left for the Python to hard-code.
+            // A plotting script carrying its own list of the six cuts is the
+            // stale-label defect this program spends a section warning about,
+            // re-created in a second language. This is built by iterating
+            // kElectronStages, which is what the cutflow iterates, so an axis
+            // drawn from it cannot name the cuts in an order the skim did not
+            // apply.
+            //
+            // `label` is rendered by the same electron_cutflow_label() the cutflow
+            // prints, so a QA figure's tick text and the cutflow's row are one
+            // string from one source. `name` is the stable identifier: it carries
+            // no threshold, so it cannot go stale when one moves.
+            {
+                int b_index = 0;
+                std::array<char, 64> b_name{};
+                std::array<char, 256> b_label{};
+                auto* t = new TTree("qa_electron_stages",
+                                    "The failed_at -> cut mapping for qa_electron, in the order the cuts are "
+                                    "applied. Built from selection::kElectronStages, the array the cutflow "
+                                    "iterates; `label` is rendered from the config by the same function");
+                // /C branches: one NUL-terminated string per entry, which uproot
+                // reads with no dictionary. snprintf bounds the copies, so a label
+                // longer than the buffer truncates rather than overruns.
+                t->Branch("index", &b_index, "index/I");
+                t->Branch("name", b_name.data(), "name/C");
+                t->Branch("label", b_label.data(), "label/C");
+
+                for (const char* stage : pi0::selection::kElectronStages) {
+                    b_index = pi0::selection::electron_stage_index(stage);
+                    const std::string label = pi0::selection::electron_cutflow_label(stage, cuts);
+                    b_name.fill('\0');
+                    b_label.fill('\0');
+                    std::snprintf(b_name.data(), b_name.size(), "%s", stage);
+                    std::snprintf(b_label.data(), b_label.size(), "%s", label.c_str());
+                    t->Fill();
+                }
+                t->Write();
+            }
+        }
 
         // ---- input ---------------------------------------------------------
         auto ds = std::make_unique<RHipoDS>(args.input, 0);
@@ -649,6 +837,45 @@ int main(int argc, char* argv[]) {
                 const auto verdict = pi0::selection::pass_electron(static_cast<double>(p_chi2pid[e]), e_p, vertex_passed,
                                                                    e_sf, e_sector, e_lv, e_lw, edge_r1, edge_r2, edge_r3,
                                                                    cuts);
+
+                // ---- QA row ------------------------------------------------
+                // HERE, between the verdict and the return that acts on it: one
+                // line later and the rejected candidates -- the entire point of
+                // the file -- would be the ones missing from it.
+                //
+                // Every branch is a value pass_electron() was just handed, or the
+                // verdict it returned. Nothing is recomputed for the plot, so a
+                // figure drawn from this shows the cut that ran.
+                if (qa_e_tree != nullptr) {
+                    qe_run = run;
+                    qe_event = this_event;
+                    qe_sector = e_sector;
+                    qe_p = e_p;
+                    qe_theta_deg = e_theta_deg;
+                    qe_phi_deg = e_phi_deg;
+                    qe_vz = e_vz_raw;
+                    // = vz when the target has no correction (LD2). The branch is
+                    // still filled: a NaN here would make "corrected" mean two
+                    // things, and the provenance already records which it was.
+                    qe_vz_corrected = e_vz_used;
+                    qe_chi2pid = static_cast<double>(p_chi2pid[e]);
+                    qe_sf = e_sf;
+                    qe_pcal_e = e_pcal_e;
+                    qe_ecin_e = e_ecin_e;
+                    qe_ecout_e = e_ecout_e;
+                    qe_pcal_lv = e_lv;
+                    qe_pcal_lw = e_lw;
+                    qe_dc_edge_r1 = edge_r1;
+                    qe_dc_edge_r2 = edge_r2;
+                    qe_dc_edge_r3 = edge_r3;
+                    // The SAME identifier the cutflow counts, mapped to the index
+                    // of the row it belongs to. Not a second enumeration of the
+                    // cuts -- see electron_stage_index().
+                    qe_failed_at = pi0::selection::electron_stage_index(verdict.failed_at);
+                    if (qe_failed_at < 0) ++n_qa_electron_passed;
+                    qa_e_tree->Fill();
+                }
+
                 if (!verdict.passed) {
                     ++electron_fail[verdict.failed_at];
                     return;
@@ -703,6 +930,18 @@ int main(int argc, char* argv[]) {
 
                     const double gx = p_px[r], gy = p_py[r], gz = p_pz[r];
 
+                    // MOST CLUSTERS HAVE NO SCORE, AND THAT IS NOT A GAP TO FILL.
+                    // The pre-filter runs before the callable, so for anything it
+                    // rejects the GBT is never evaluated and no score exists. The
+                    // QA row says so with prefiltered == 1 and a NaN, rather than
+                    // a 0 -- which is a legal score, and would read as "the
+                    // classifier was certain this was not a photon" instead of
+                    // "the classifier was never asked". Forcing the GBT to run on
+                    // everything just to fill the column would change what this
+                    // program costs in order to describe what it does.
+                    double g_score = std::numeric_limits<double>::quiet_NaN();
+                    bool g_scored = false;
+
                     // The scored overload, not the eager one: the GBT is the
                     // expensive part of this program, and the pre-filter exists
                     // precisely so it is not evaluated on most clusters.
@@ -711,9 +950,39 @@ int main(int argc, char* argv[]) {
                         [&]() {
                             const std::vector<float> feats =
                                 pi0::photonid::build_features(r, calo, p_pid, p_px, p_py, p_pz, feat_cuts);
-                            return pi0::photonid::score(feats, model);
+                            // Captured, not returned twice: this is the number the
+                            // threshold is about to be applied to, so recording it
+                            // here is recording the cut rather than modelling it.
+                            g_score = pi0::photonid::score(feats, model);
+                            g_scored = true;
+                            return g_score;
                         },
                         cuts);
+
+                    // ---- QA row ---------------------------------------------
+                    // Before the `continue`, so the rejected candidates are here.
+                    if (qa_g_tree != nullptr) {
+                        qg_run = run;
+                        qg_event = this_event;
+                        // The selection's OWN energy and angle, not a second sqrt
+                        // and a second acos that agree today.
+                        qg_e = pi0::selection::photon_energy_gev(gx, gy, gz);
+                        qg_theta_deg = pi0::selection::photon_theta_deg(gx, gy, gz);
+                        // phi is the one branch here no cut reads: the photon
+                        // selection has no azimuthal term. It is carried because a
+                        // fiducial map is drawn in (theta, phi) and this file
+                        // exists to be plotted.
+                        qg_phi_deg = phi_deg_of(gx, gy);
+                        qg_gbt_score = g_score;
+                        qg_pcal_e = g_pcal_e;
+                        qg_pcal_lv = g_lv;
+                        qg_pcal_lw = g_lw;
+                        qg_beta = static_cast<double>(p_beta[r]);
+                        qg_prefiltered = g_scored ? 0 : 1;
+                        qg_passed = ok ? 1 : 0;
+                        qa_g_tree->Fill();
+                    }
+
                     if (!ok) continue;
 
                     b_gpx.push_back(gx);
@@ -772,6 +1041,14 @@ int main(int argc, char* argv[]) {
                   "\nthe contract; entry numbering restarts per file and the provenance records one run.)";
             out->Close();
             std::remove(args.output.c_str());
+            // The QA file goes with it, and for the identical reason: a file that
+            // exists is a file somebody will eventually plot. Its rows carry the
+            // model chosen for one run applied to candidates from several, which
+            // is exactly the confusion this refusal exists to prevent.
+            if (qa_out != nullptr) {
+                qa_out->Close();
+                std::remove(args.qa_ntuple->c_str());
+            }
             std::cerr << "error: " << os.str() << '\n';
             return 5;
         }
@@ -841,11 +1118,93 @@ int main(int argc, char* argv[]) {
                  std::to_string(n_run_zero) + " of " + std::to_string(n_all) +
                      " tag-0 events had RUN::config.run == 0 (bank not filled); the run branch carries the file's run");
 
+        // In the SLIM's block, not only the QA file's. A reader holding the slim
+        // must be able to tell that a per-candidate file was cut from this same
+        // pass -- otherwise the QA file is an orphan whose numbers cannot be
+        // traced back to the run that produced them, which is the hole this
+        // project's provenance exists to close.
+        prov.add("qa_ntuple.written",
+                 args.qa_ntuple.has_value()
+                     ? *args.qa_ntuple +
+                           " -- DIAGNOSTIC ONLY: per-CANDIDATE pre-cut values, NOT per-event. No yield and no "
+                           "normalisation may be taken from it. It changed nothing in this file."
+                     : std::string("false (no --qa-ntuple)"));
+
         out->cd();
         prov.write(*out);
         prov.write_text(*out);
         tree->Write();
         out->Close();
+
+        // ---- the QA ntuple's provenance --------------------------------------
+        // THE SAME BLOCK, plus what is true only of this file.
+        //
+        // Copied rather than referenced: the QA file has to be readable on its
+        // own. A diagnostic that records which cuts and which model produced it
+        // can still be trusted a year later; one that says "see the slim" is one
+        // nobody can trace once the two are in different directories. Same
+        // argument as stageB_bin propagating Stage A's block forward rather than
+        // dropping it.
+        if (qa_out != nullptr) {
+            // The row counts, checked rather than trusted. The -1s and the
+            // independently-counted electron passes must agree: if they do not,
+            // either electron_stage_index() mapped a rejection to -1 or the QA
+            // fill drifted away from the verdict beside it -- and a QA file whose
+            // "passed" rows are not the skim's passed rows is worse than no QA
+            // file, because every plot drawn from it still looks right. Same
+            // reasoning as the cutflow's own consistency check below.
+            if (qa_e_tree->GetEntries() != n_has_electron) {
+                throw std::runtime_error(
+                    "the QA ntuple holds " + std::to_string(qa_e_tree->GetEntries()) + " electron rows but " +
+                    std::to_string(n_has_electron) +
+                    " trigger electrons were found. Every candidate must be recorded exactly once, before its "
+                    "verdict is acted on.");
+            }
+            if (n_qa_electron_passed != n_electron_pass) {
+                throw std::runtime_error(
+                    "the QA ntuple marks " + std::to_string(n_qa_electron_passed) +
+                    " electrons as failed_at == -1 but " + std::to_string(n_electron_pass) +
+                    " passed the selection. failed_at does not agree with the verdict it was derived from.");
+            }
+
+            Provenance qa_prov = prov;
+            qa_prov.add("qa_ntuple.path", *args.qa_ntuple);
+            qa_prov.add("qa_ntuple.slim_path", args.output);
+            // The loudest line in this block, and the reason the block is here. A
+            // per-candidate file has an obvious number of rows and no obvious
+            // reason not to divide by it.
+            qa_prov.add("qa_ntuple.status",
+                        "DIAGNOSTIC ONLY. These trees are PER-CANDIDATE, not per-event: qa_electron has one row "
+                        "per trigger electron (pre-cut, rejected ones included) and qa_photon one row per pid==22 "
+                        "candidate (pre-threshold). NO YIELD, EFFICIENCY OR NORMALISATION MAY BE TAKEN FROM THIS "
+                        "FILE. The physics output of this pass is the slim at qa_ntuple.slim_path; this file "
+                        "exists to plot the selection and what each cut removes.");
+            qa_prov.add("qa_ntuple.qa_electron.rows",
+                        std::to_string(qa_e_tree->GetEntries()) + " (one per trigger electron; failed_at == -1 on " +
+                            std::to_string(n_qa_electron_passed) +
+                            " of them, which is the cutflow's electron-pass count)");
+            qa_prov.add("qa_ntuple.qa_photon.rows",
+                        std::to_string(qa_g_tree->GetEntries()) +
+                            " (one per pid==22 candidate IN EVENTS THAT ALREADY PASSED THE ELECTRON AND DIS CUTS "
+                            "-- the photon loop is downstream of both, so this is not a photon count for the file)");
+            qa_prov.add("qa_ntuple.gbt_score.absent",
+                        "gbt_score is NaN wherever prefiltered == 1. The GBT pre-filter (energy, PCAL energy, "
+                        "theta) runs BEFORE the classifier, so for those candidates the model was never evaluated "
+                        "and no score exists. It is not zero: zero is a legal score meaning the classifier was "
+                        "certain, and it was never asked.");
+            qa_prov.add("qa_ntuple.failed_at",
+                        "indexes the qa_electron_stages tree in this file, which is generated from "
+                        "selection::kElectronStages -- the same array the cutflow's rows are built from. -1 means "
+                        "the candidate passed all six cuts. The cuts short-circuit, so this is the FIRST failing "
+                        "cut, not the only one: the tree is a SEQUENTIAL cutflow, exactly like the printed one.");
+
+            qa_out->cd();
+            qa_prov.write(*qa_out);
+            qa_prov.write_text(*qa_out);
+            qa_e_tree->Write();
+            qa_g_tree->Write();
+            qa_out->Close();
+        }
 
         // ---- cutflow ---------------------------------------------------------
         std::ostringstream trigger_label;
