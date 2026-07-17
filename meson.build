@@ -187,6 +187,14 @@ nlohmann_json_dep = dependency(
   fallback: ['nlohmann_json', 'nlohmann_json_dep'],
 )
 
+# std::thread / std::mutex in the stages that opt into multi-threading (Stage A,
+# Stage B, make_grid). Declared once here so each program's meson.build only has
+# to name `thread_dep` in its dependency list -- keeping the multi-threading
+# additions to the per-program files rather than repeatedly touching this one.
+# On the JLab farm this resolves to -pthread; util/Progress.hpp and the stages'
+# worker pools are the only users.
+thread_dep = dependency('threads')
+
 # ---------------------------------------------------------------------------
 # pi0_core -- pure analysis code, no HIPO, no ROOT beyond ROOT::VecOps::RVec.
 # Everything here must be unit-testable without a data file.
