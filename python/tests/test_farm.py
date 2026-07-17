@@ -88,10 +88,38 @@ def test_unknown_target_and_polarity_refuse():
         runs_for(runs, "sideways", "LD2")
 
 
+#: The train-skim naming, as it actually appears on /cache. CLAS12 has more than
+#: one convention and the production uses both -- clas-framework's own
+#: pi0.farm.toml pointed at dst/train/SIDIS/.
+def _train(run: int) -> str:
+    return f"/cache/clas12/rg-d/production/pass1/recon/LD2/dst/train/SIDIS/SIDIS_{run:06d}.hipo"
+
+
 def test_run_of_reads_filename_then_parent_dir():
     assert run_of(_dst(18419)) == 18419
     assert run_of("/mss/x/dst/recon/018419/something_else.hipo") == 18419
     assert run_of("/tmp/no_run_here.hipo") is None
+
+
+def test_run_of_reads_the_train_skim_naming():
+    """dst/train/SIDIS/SIDIS_018431.hipo -- no rec_clas_ prefix, and the parent
+    directory is the TRAIN name, not the run, so there is no dir fallback."""
+    assert run_of(_train(18431)) == 18431
+    assert run_of(_train(18541)) == 18541
+    assert run_of("SIDIS_018431.hipo") == 18431
+
+
+def test_run_of_ignores_digits_in_directories():
+    """The filename wins. A directory that happens to contain _<digits>. must not
+    be read as the run of a file inside it."""
+    assert run_of("/work/run_99999.old/SIDIS_018431.hipo") == 18431
+
+
+def test_run_of_does_not_mistake_the_evio_chunk_for_the_run():
+    """rec_clas_018419.evio.00000-00004.hipo -- the chunk numbers are preceded by
+    '.' and '-', not '_', so only _018419. matches."""
+    assert run_of("/x/rec_clas_018419.evio.00000-00004.hipo") == 18419
+    assert run_of("/x/rec_clas_018419.evio.00100-00104.hipo") == 18419
 
 
 # ---------------------------------------------------------------------------

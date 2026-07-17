@@ -107,9 +107,20 @@ TARGET_TO_RUNLIST: dict[str, str] = {
     "Sn": "CuSn",
 }
 
-#: Run number as it appears in a CLAS12 DST filename or its parent directory:
-#: ``/mss/.../dst/recon/018434/rec_clas_018434.evio.00000-00004.hipo``.
-_RUN_IN_NAME = re.compile(r"rec_clas_(\d{4,6})\.")
+#: The run number in a CLAS12 HIPO filename. CLAS12 has more than one naming
+#: convention and the production uses both:
+#:
+#:   dst/recon/018434/rec_clas_018434.evio.00000-00004.hipo   per-run DSTs
+#:   dst/train/SIDIS/SIDIS_018431.hipo                        train skims
+#:
+#: so this matches ``_<run>.`` rather than a fixed prefix. Applied to the
+#: BASENAME only -- a directory called ``run_12345.old`` must not be mistaken for
+#: the run of a file inside it.
+_RUN_IN_NAME = re.compile(r"_(\d{4,6})\.")
+
+#: Fallback: a six-digit directory, as the per-run DST tree uses. Train skims
+#: live in a directory named for the train (``SIDIS``), not the run, so they never
+#: reach this.
 _RUN_IN_DIR = re.compile(r"/(\d{6})/")
 
 
@@ -170,15 +181,16 @@ def runs_for(runs: dict[str, Any], polarity: str, target: str) -> set[int]:
 def run_of(path: str | Path) -> int | None:
     """The run number a DST path claims, or None.
 
-    Reads the *filename* first (``rec_clas_018434.evio...``) and falls back to a
+    Reads the filename first -- ``rec_clas_018434.evio...`` and
+    ``SIDIS_018431.hipo`` are both production naming -- and falls back to a
     six-digit parent directory. Returns None rather than guessing: a caller that
-    cannot identify a file's run must refuse it, not assume.
+    cannot identify a file's run must refuse it, not assume, because the run is
+    what decides the target and the polarity.
     """
-    s = str(path)
-    m = _RUN_IN_NAME.search(s)
+    m = _RUN_IN_NAME.search(Path(path).name)
     if m:
         return int(m.group(1))
-    m = _RUN_IN_DIR.search(s)
+    m = _RUN_IN_DIR.search(str(path))
     if m:
         return int(m.group(1))
     return None
