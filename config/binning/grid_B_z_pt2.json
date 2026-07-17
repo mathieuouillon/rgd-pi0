@@ -1,0 +1,28 @@
+{
+  "_comment": "PLACEHOLDER -- THESE ARE NOT THE ANALYSIS EDGES. Round human numbers, chosen only so that the code, the tests and the tools have a well-formed, loadable Grid B to run against before any data has been scanned. Nothing about them is fitted to the RG-D acceptance and no result may be quoted from them. REPLACE THIS FILE WHOLESALE with the output of the make_grid tool, computed from real data, before any production run. make_grid rewrites this file and fills in /provenance; do not hand-edit the edges.",
+  "_schema_version": "1.0",
+  "_generated": "2026-07-16",
+  "_grid": "B",
+  "_grid_comment": "Grid B is the (z, pT2) grid of the factorized binning (note sec:binning-future). The 4D bin is (A cell) x (B cell) and Grid B is INDEPENDENT of the Grid A cell -- one z/pT2 grid for the whole of (Q2, xB), not one per A cell. That independence is the deliberate sacrifice this rewrite makes: the superseded kd-tree nested pT2 inside (Q2, xB, z) and so could follow the strong pT2-z correlation, which a product grid cannot. The gain is that these edges are global, quotable, version-controlled and hashed into every output; the tree's were none of those, and the production's are now unrecoverable.",
+  "_pt_broadening_comment": "The z axis of THIS grid does double duty: the pT-broadening binning is (Grid A cell) x (z bin) = 8 x 7 x 5 = 280, with pT2 as the OBSERVABLE rather than a binning dimension. See Binning::find_3d(). One z axis serves both, so the two binnings cannot drift apart.",
+  "_axes_order_comment": "AXIS ORDER IS LOAD-BEARING. axes[0] is the SLOW axis of the row-major flat index (cell = i_z * n_pt2 + i_pt2), axes[1] the FAST one. Binning::load() checks the names against the order it expects and refuses a swapped pair, because a swapped pair would bin, index and plot perfectly cleanly while labelling every result with the wrong variable.",
+  "axes": [
+    {
+      "name": "z",
+      "_comment": "z = E_pi0 / nu, dimensionless. 6 edges -> 5 bins. The span [0.0, 1.0] matches cuts.json's pairing.z_min/z_max, but the two are NOT the same statement and must not be deduplicated: the cut is EXCLUSIVE at both ends (0 < z < 1), whereas this grid's find() is half-open [lo, hi) with the top edge folded into the last bin. An event at exactly z = 1.0 is rejected by the cut and never reaches the grid; the grid's top-edge rule exists for the axes where the top edge IS reachable.",
+      "edges": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    },
+    {
+      "name": "pt2",
+      "_comment": "p_T^2 of the pi0 with respect to the virtual photon, GeV^2. 6 edges -> 5 bins. Note the widths are already deliberately UNEQUAL and growing (0.1, 0.1, 0.2, 0.3, 0.8): even as a placeholder, a uniform pT2 grid would put almost every pi0 in the first bin. The top bin [0.7, 1.5) is the one the note's sec:binning-caveat is about -- in the superseded production the equivalent box ran to 3.64 GeV^2, was plotted at its midpoint of ~1.92 GeV^2, and had a true <pT2> of ~0.3 GeV^2. The apparent Cronin rise that produced was an artefact of the abscissa, not physics. THIS IS ALSO THE AXIS THE OLD find_1d_bin() BUG BIT: a pT2 exactly equal to the top edge returned -1 and the event was silently dropped. Grid1D::find() puts it in the last bin, and tests/test_binning.cpp pins that.",
+      "edges": [0.0, 0.1, 0.2, 0.4, 0.7, 1.5]
+    }
+  ],
+  "provenance": {
+    "_comment": "Where these edges came from. Read and type-checked by Binning::load() -- required, never defaulted -- so that it cannot decay into another declared-set-and-never-read key. It is deliberately NOT part of provenance_hash(): the hash covers the axis names and the edges only, so re-wording a comment here does not invalidate an existing result, while moving an edge by one ulp does.",
+    "source": "placeholder",
+    "_source_comment": "'placeholder' until make_grid has run. make_grid replaces this with the identity of the scan that produced the edges (dataset, target, polarity, file list hash).",
+    "n_events": 0,
+    "_n_events_comment": "0 because no data was scanned to make these. A real equal-statistics grid records the number of events its quantiles were computed from -- that number is what makes the 'equal statistics' claim checkable."
+  }
+}

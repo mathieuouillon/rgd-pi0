@@ -1,0 +1,3 @@
+[submodule "external/hipo-cpp"]
+	path = external/hipo-cpp
+	url = https://code.jlab.org/hallb/clas12/hipo-cpp

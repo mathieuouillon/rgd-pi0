@@ -1,0 +1,13 @@
+# Project options for rgd_pi0_analysis.
+#
+# NOTE: meson options are per-subproject. This `build_tests` controls OUR
+# tests/ directory only; the vendored hipo-cpp subproject has an option of the
+# same name which we pin to false from the top-level meson.build. The two are
+# independent (hipo-cpp's option is not declared `yield`).
+
+option(
+  'build_tests',
+  type: 'boolean',
+  value: true,
+  description: 'build and register the unit-test suite (tests/); requires Catch2 (fetched via external/catch2.wrap)',
+)

@@ -1,0 +1,280 @@
+{
+  "_comment": "SINGLE SOURCE OF TRUTH for every cut value in the RG-D pi0 -> gamma gamma nuclear multiplicity analysis. No cut value may appear in C++, Python, or any other config file. A number hard-coded in code is a bug -- see config/README.md. Provenance for each value is given in the adjacent _comment fields; 'the note' means /Users/mathieuouillon/Documents/Typst/pi0-analysis, sections 03_event_selection.typ, 04_pi0_reconstruction.typ, 06_background.typ, 07_multiplicity_ratio.typ. 'the old code' means the superseded tree at /Users/mathieuouillon/Documents/tmp/clas-analysis-1, whose values were scattered across C++ constants, TOML, and dead config keys -- that scattering is precisely what this file exists to end.",
+  "_schema_version": "1.0",
+  "_generated": "2026-07-16",
+  "beam": {
+    "_comment": "Note sec:dis (eq:Q2/eq:nu). The old code carried THREE independent beam energies ([analysis] beam_energy, [Pi0Analysis] beam_energy, and a hard-coded BeamConfig default) that agreed only by coincidence -- all three happened to default to 10.53. Here there is exactly one.",
+    "energy_gev": 10.53,
+    "polarity": "outbending",
+    "_polarity_comment": "This project is OUTBENDING-ONLY for now. Every polarity-dependent number below (sampling-fraction coefficients, vertex windows) is the outbending set. Inbending values exist in the note's appendix but are NOT loaded here; adding inbending requires a per-polarity block, not an edit of these numbers.",
+    "proton_mass_gev": 0.938272,
+    "_proton_mass_comment": "Note sec:dis. x_B uses the PROTON mass for the nuclear targets too -- conventional for multiplicity ratios where the per-nucleon variable cancels, but it is a choice, stated explicitly."
+  },
+  "electron": {
+    "_comment": "Note tab:electron-cuts. Applied in this order with short-circuit evaluation; ALL comparisons are strict. There is NO ECAL (ECIN/ECOUT) fiducial cut, NO polar-angle cut, and NO HTCC photoelectron cut. The PCAL lv/lw pair is the only calorimeter fiducial and the sampling fraction is the only e/pi separation.",
+    "chi2pid_min": -5.0,
+    "chi2pid_max": 5.0,
+    "_chi2pid_comment": "Standard EB PID quality. Old code: ElectronCutsService::MIN_CHI2PID/MAX_CHI2PID.",
+    "min_momentum_gev": 2.0,
+    "_min_momentum_comment": "TRAP: the old cutflow printed the row label 'Momentum > 0.8 GeV', but the applied cut was p > MIN_ELECTRON_MOMENTUM = 2.0 GeV (verified: ElectronCutsService.hpp:87). The 0.8 label was a stale string, repeated in the electron-analysis algorithm, and ANY cutflow table copied from the old logs inherits the error. The effective cut is and always was 2.0 GeV. Do not quote 0.8.",
+    "sampling_fraction": {
+      "_comment": "Note sec:sampling-fraction. SF = (E_PCAL + E_ECIN + E_ECOUT) / p, compared against a per-sector, per-polarity third-order polynomial in p for both mean and width: mu(p) = a + b*p + c*p^2 + d*p^3, same form for sigma(p). Cut is mu(p) - n_sigma*sigma(p) < SF < mu(p) + n_sigma*sigma(p). Requires a valid PCAL sector in [1,6].",
+      "n_sigma": 3.5,
+      "_n_sigma_comment": "Old code: ElectronCutsService::SF_N_SIGMA = 3.5.",
+      "_coefficients_comment": "The per-sector polynomial coefficients are TARGET-AVERAGED -- one set per sector and polarity, applied to LD2, C, Cu and Sn alike. They are tabulated in the note's appendix sec:appendix-sf and are NOT reproduced here: they are a detector calibration, not a cut. They belong in a separate calibration file. This file owns only the n_sigma knob."
+    },
+    "pcal_lv_min_cm": 9.0,
+    "pcal_lw_min_cm": 9.0,
+    "_pcal_fiducial_comment": "Loose level. Photons use the HARDER 14.0 cm (see photon.pcal_lv_min_cm) -- the two are deliberately different; do not unify them. TRAP: the old code declared pcal_lv_min/pcal_lw_min as algorithm Properties and set them in six TOML files where they were NEVER READ (note sec:appendix-dead-config); the real cut came from ElectronCutsService constants. Anyone who tuned the TOML changed nothing.",
+    "dc_edge_r1_cm": 1.68,
+    "dc_edge_r2_cm": 2.0,
+    "dc_edge_r3_cm": 8.75,
+    "_dc_edge_comment": "REC::Traj edge distance, DC layers 6 / 18 / 36 respectively. Same dead-config trap as the PCAL fiducial: the old dc_r{1,2,3}_edge_min TOML keys were declared, set, and never read.",
+    "trigger": {
+      "_comment": "Note sec:trigger-electron. The scattered electron is the FIRST REC::Particle row satisfying all of: pid == 11, status < 0, status_min <= |status| < status_max (i.e. in the Forward Detector), and a non-zero momentum vector. 'First matching row', not 'highest momentum' -- this is an ordering dependence inherited from the old code, preserved deliberately.",
+      "pid": 11,
+      "require_negative_status": true,
+      "status_abs_min": 2000,
+      "status_abs_max": 4000,
+      "_status_comment": "Window is |status| in [2000, 4000): lower bound inclusive, upper bound EXCLUSIVE. Old code: ElectronCutsService::MIN_FD_STATUS / MAX_FD_STATUS."
+    }
+  },
+  "dis": {
+    "_comment": "Note tab:dis-cuts. DIS variables are computed against a STATIONARY PROTON for every target. All cuts are strict. There is no x_B cut. Implementation detail inherited rather than chosen: Q2 uses the massless/angle form 4*E*E'*sin^2(theta/2) rather than -(k-k')^2 (equivalent to better than the resolution at these energies).",
+    "q2_min": 1.0,
+    "_q2_min_comment": "Hard-scattering regime.",
+    "w_min": 2.0,
+    "_w_min_comment": "Above the resonance region.",
+    "y_max": 0.85,
+    "_y_max_comment": "Suppresses large radiative corrections and poor resolution.",
+    "_omitted_upper_bounds_comment": "q2_max AND w_max ARE DELIBERATELY OMITTED, NOT FORGOTTEN. The old configuration set q2_max = 100 GeV^2 and w_max = 100 GeV, but at E_beam = 10.53 GeV the kinematic maxima are Q2 ~= 9.6 GeV^2 and W ~= 4.6 GeV, so neither bound is reachable and neither ever rejected a single event. Encoding an unreachable bound invites a future reader to believe a cut exists where none does. If a real upper bound is ever wanted, add it here as a new key with a physics justification -- do not resurrect 100.",
+    "_dead_region_comment": "TRAP for anyone reading the old code: both old pi0 binaries constructed the DIS algorithm with dis_region = standard_dis_region(), implying Q2 in [1,20] and W in [2,25]. THAT FIELD WAS NEVER READ -- the cut code consulted only the flat q2_min/q2_max/w_min/w_max/y_min/y_max members. Since none of 20, 25, or 100 is reachable at this beam energy, all four candidate bounds selected the same events, so the distinction has no physics consequence. It matters only for correctness of the record: a note quoting 'Q2 < 20, W < 25' describes a cut that never ran. This file has no dis_region concept at all.",
+    "_y_min_comment": "The old config set y_min = 0.0, which is vacuous (y >= 0 identically). Omitted for the same reason as the upper bounds."
+  },
+  "photon": {
+    "_comment": "Note tab:photon-cuts. Photons are selected ONCE, at skim time, by a Catboost GBT classifier rather than by cut-based identification. Photon energy is taken as E_gamma = |p_gamma| (massless). There is NO timing cut anywhere in the pi0 chain; beta is the only timing-derived handle. WARNING inherited from the old design: the skim freezes this selection -- it carries no PID, status, beta or vertex column for photons, so downstream cannot re-cut or vary them. Varying any value in this block as a systematic requires re-running the skim over the full dataset.",
+    "pid": 22,
+    "_pid_comment": "EB neutral, calorimeter-matched.",
+    "gbt_threshold": 0.78,
+    "_gbt_threshold_comment": "sigmoid(model_output) > 0.78, with sigmoid(x) = 1/(1 + exp(-x)). Old code: PhotonCutsService::AI_THRESHOLD = 0.78. The classifier takes a 45-component feature vector (see note sec:photon-id) and exists to reject neutral background -- principally neutrons and split-off clusters -- that a simple energy threshold cannot.",
+    "gbt_pass": 1,
+    "_gbt_pass_comment": "Cooking pass index, used together with the run number to key the model lookup table. In the old code this was hard-coded to 1 (PhotonCutsService::m_pass = 1) and NEVER set from configuration. It is a real config key here.",
+    "allow_rga_fallback": false,
+    "_allow_rga_fallback_comment": "CRITICAL -- READ BEFORE CHANGING. No GBT model exists for RG-D. The model lookup table is keyed on (run range, pass) and covers RG-A and RG-C only: runs 5032-5666, 6156-6783, 11093-11571 (RG-A) and 16042-16772 (RG-C). The table TOPS OUT AT RUN 16772 (verified in the old PhotonCutsService.hpp model map). RG-D runs span 18305-19131 and therefore match NO entry. The old code fell through to a silent default -- 'return ApplyCatboostModel_RGA_inbending_pass1(data);' -- with no warning logged, so EVERY RG-D photon (outbending data, nuclear targets) was identified by a model trained on RG-A INBENDING PASS-1 data. That is the single largest known systematic on the photon efficiency and it is entirely unquantified. It does not obviously bias the ratio R_A, since the same model is applied to every target and the efficiency should cancel to first order -- but that cancellation is an ASSUMPTION, not a measurement, and it fails to the extent that photon efficiency depends on local occupancy, which does differ between LD2 and Sn. THEREFORE: in this project the fallback is OPT-IN and DEFAULT OFF. With this false, a run number matching no table entry must make the program REFUSE TO RUN with a hard error naming the run -- it must not silently substitute a model and it must not lie. Set true ONLY for a deliberate, documented study in which you intend to apply an RG-A inbending model to RG-D outbending data and will report it as such.",
+    "min_energy_gev": 0.2,
+    "_min_energy_comment": "E_gamma >= 0.2 GeV. NOTE: this bound is INCLUSIVE (>=), unlike most cuts in this analysis. It sits inside the classifier's purity pre-filter, so it applies only on the AI path -- which is the production path. TRAP: the old code had this same 0.2 value hard-coded inside the AI branch while [PhotonSelection] min_photon_energy in TOML was unread when use_ai = true, and [Pi0Reconstruction] min_photon_energy = 0.1 was unread entirely (select_photons() was never called from process()). Three keys, two values, one effective cut. Here there is one key.",
+    "require_pcal_energy": true,
+    "_require_pcal_energy_comment": "Requires E_PCAL > 0: the shower must start in the preshower. Also inside the AI purity pre-filter.",
+    "theta_min_deg": 5.0,
+    "theta_max_deg": 35.0,
+    "_theta_comment": "5 <= theta_gamma <= 35 degrees, Forward Detector. INCLUSIVE at both ends. Inside the AI purity pre-filter.",
+    "pcal_lv_min_cm": 14.0,
+    "pcal_lw_min_cm": 14.0,
+    "_pcal_fiducial_comment": "Harder than the electron's 9.0 cm. The difference is intentional -- do not unify with electron.pcal_lv_min_cm.",
+    "beta_min": 0.9,
+    "beta_max": 1.1,
+    "_beta_comment": "0.9 < beta < 1.1, consistency with light speed. TRAP: the slim reader rebuilds photons with beta and vertex ZEROED, so the slim path cannot reproduce the beta cut it inherited. This cut is only ever applied at skim time."
+  },
+  "pairing": {
+    "_comment": "Note sec:pairing / fig:pairing. Candidates are built by GREEDY EXCLUSIVE pairing: among all unused pairs (i,j) with |m_ij - pi0_mass| < mass_window, take the pair minimising |m_ij - pi0_mass|, emit it, mark both photons used, repeat until no admissible pair remains. Each photon is consumed by at most one pi0, so an N-photon event yields at most floor(N/2) candidates. The loop is greedy and best-first, NOT a global optimum -- an assignment maximising the candidate count, or the joint likelihood, could differ.",
+    "pi0_mass_gev": 0.1349768,
+    "_pi0_mass_comment": "Nominal pi0 mass, the reference for the mass window and the greedy ordering. NOT the centre of the yield integration window -- that is the FITTED mu (see extraction). This matters: the note (sec:invariant-mass) records that no photon energy correction, calorimeter scale factor, pi0-mass constraint or vertex constraint is applied anywhere in the chain, and the fitted peak sits 4.8-5.9 MeV BELOW nominal (mu = 129.06/129.50/129.25/129.40 MeV for LD2/CxC/Cu/Sn), a 4.4% energy-scale deficit consistent across targets to better than 1 MeV. Because the integration window is centred on the fitted mu, the shift is largely absorbed and does not by itself bias the yield.",
+    "mass_window_gev": 0.2,
+    "_mass_window_comment": "DELIBERATELY WIDE -- THIS IS NOT A PI0 MASS SELECTION. The cut is |m_gg - 0.1349768| < 0.2. Since m_gg >= 0 always, this reduces to m_gg < 0.335 GeV WITH NO LOWER BOUND AT ALL: essentially every gamma-gamma pair below 335 MeV enters the 'pi0 candidate' collection. This is BY DESIGN, not by accident -- the signal is extracted offline by fitting and subtracting the m_gg spectrum (see extraction), which requires the sidebands to be present. Narrowing this window would destroy the background estimate. THREE consequences that must be stated plainly: (1) ANY documentation claiming a +-30 MeV pi0 selection IS WRONG -- the old C++ struct default was 0.03 with a comment reading 'plus/minus 30 MeV around 135 MeV', but every shipped configuration overrode it to 0.2, so the docstring described a cut that never ran; (2) any accumulator filled from this collection without offline subtraction (e.g. p_T-broadening) is computed over a largely COMBINATORIAL sample; (3) the greedy 'closest to pi0 mass' ordering is doing more work than the window is, since the window barely excludes anything.",
+    "min_mgg_gev": 0.001,
+    "_min_mgg_comment": "Note tab:pair-cuts. Rejects nearly collinear pairs with unphysically small mass. Strict (>).",
+    "e_gamma_min_angle_deg": 8.0,
+    "_e_gamma_min_angle_comment": "theta_e_gamma > 8.0 deg. Rejects photons collinear with the scattered electron (bremsstrahlung, radiative tails). ASYMMETRY, correct by construction: for a MIXED pair only the current-event photon is tested against this cut -- the pooled photon is never re-tested against the current event's electron, because it was already tested against its OWN event's electron, which is the physically meaningful reference. A genuine inconsistency sits alongside it, however: all of the current event's photons are inserted into the pool INCLUDING those that failed their own event's e-gamma cut, so a photon rejected from the same-event spectrum can still contribute to the mixed-event spectrum. The effect is a small background shape distortion near the electron direction. It is not corrected and has not been quantified.",
+    "opening_angle": {
+      "_comment": "Note eq:theta-min. theta_gg > theta_min(p) with theta_min(p) = a_deg * exp(-b_inv_gev * p) + offset_deg, in DEGREES, where p = |p_gamma1 + p_gamma2| is the PAIR momentum (not the single-photon momentum). Rejects merged clusters: at high pi0 momentum the two decay photons become increasingly collinear and their calorimeter clusters merge, so the threshold must fall with p. Sanity check: 18.56 deg at p = 0, 4.87 deg at p = 2 GeV, asymptote 1.0 deg.",
+      "a_deg": 17.561,
+      "b_inv_gev": 0.756,
+      "offset_deg": 1.0
+    },
+    "z_min": 0.0,
+    "z_max": 1.0,
+    "_z_comment": "0 < z < 1, EXCLUSIVE at both ends. Physical hadrons only. Applies to the multiplicity fills. z = E_pi0 / nu. READ INTO Cuts::sidis, not Cuts::pairing: this is a SIDIS-level cut on a reconstructed pi0, not a property of a photon pair, and find_gg_pairs never sees it (z needs nu, which pairing knows nothing about). The JSON keeps it under /pairing because that is where it has always lived; Cuts::load owns the mapping. UNTIL 2026-07-16 THESE TWO KEYS WERE DECLARED AND NEVER READ -- the exact dead-config defect this file's preamble is about, sitting inside this file. make_grid was the first consumer to need them and is what surfaced it."
+  },
+  "binning": {
+    "_comment": "Note sec:binning-future. The SHAPE of the two factorized equal-statistics grids -- how many bins per axis -- and nothing else. THE EDGES ARE NOT HERE: they are computed from data by src/tools/make_grid and written to config/binning/grid_A_q2_xb.json and config/binning/grid_B_z_pt2.json, which are version-controlled and hashed into every output. That split is deliberate. The shape is a design choice a human makes; the edges are a measurement over a dataset, and a measurement that is retyped by hand is a measurement that drifts. The superseded analysis's kd-tree edges were never archived at all and exist only on /work -- if that disk dies, the binning of the production is gone. This is the fix.",
+    "_not_the_pool_grid_comment": "DO NOT CONFUSE THIS WITH /mixing/pool_grid. That block carries FIXED, HAND-CHOSEN Q2 and x_B edges (1.0, 1.5, 2.0 ...) used for the mixing pool key and the DIS normalisation denominator. They are a different grid with a different purpose and they are NOT equal-statistics. Grid A below happens to share pool_grid's 8 x 7 shape, and that is a coincidence of taste, not a constraint: nothing requires them to match and the code never assumes they do.",
+    "grid_a": {
+      "_comment": "Grid A = (Q^2, x_B), per EVENT. 8 x 7 = 56 cells.",
+      "n_q2": 8,
+      "n_xb": 7
+    },
+    "grid_b": {
+      "_comment": "Grid B = (z, p_T^2), per PI0. 5 x 5 = 25 cells. INDEPENDENT of the Grid A cell -- the 4D bin is the product A x B = 1400, not a nested tree. This is the deliberate simplification recorded in the note (sec:binning-future): it buys global quotable edges and reproducibility, and it sacrifices the kd-tree's ability to let the p_T^2 edges follow z.",
+      "n_z": 5,
+      "n_pt2": 5
+    },
+    "_equal_statistics_is_marginal_comment": "CRITICAL, AND EASY TO MISREAD. 'Equal statistics' here means each axis is cut at quantiles of its OWN marginal distribution. It does NOT mean the 56 cells of Grid A hold equal counts -- Q^2 and x_B are strongly correlated, so the product of two equal-count marginals is very far from an equal-count 2D grid, and the low-x_B/high-Q^2 corner is nearly empty. Each Q^2 ROW holds ~1/8 of the sample and each x_B COLUMN ~1/7; individual cells do not. The kd-tree this replaces DID give equal-occupancy leaves, and that property is genuinely lost. make_grid prints the 2D occupancy table precisely so that nobody has to take this comment's word for it.",
+    "_cap_comment": "No cap key here, deliberately. An equal-statistics grid still has an outermost bin running to the kinematic limit (note sec:binning-caveat), and make_grid offers --cap-z / --cap-pt2 to clamp the top edge and discard the overflow. That is an OPT-IN STUDY KNOB, not a production default: with count-weighted abscissae -- which Stage B accumulates per (4D bin, m_gg bin) from its first line -- the wide outer bin is honestly POSITIONED even though it is coarse, so capping trades real pi0 away for a cosmetic gain. If a cap is ever adopted for production it belongs here as a key with a physics justification; until then it stays on the command line and is recorded in the emitted grid JSON's provenance along with how many pi0 it threw away."
+  },
+  "vertex": {
+    "_comment": "Note tab:vz. OUTBENDING ONLY -- the only polarity used here; inbending values exist in the note's appendix and are not loaded. The vertex cut both selects the target and, for the solid foils, DEFINES which nucleus the event belongs to: Cu and Sn are two foils in one assembly, distinguished ONLY by v_z. For the solid targets the raw vertex is first corrected by a per-cell (sector, p-bin, phi-bin) cubic-in-theta parameterisation blended between two Gaussian hypotheses with a sigmoid weight; the corrected vertex is then required to satisfy |v_z_corr - mu| < n_sigma * sigma.",
+    "_override_comment": "CRITICAL PROVENANCE -- THE NUMBERS BELOW ARE THE VALUES ACTUALLY APPLIED, NOT THE VALUES IN THE PARAMETER FILE. The old vz service OVERRODE the peak parameters it read from its own parameter file with hard-coded values: the file gives sigma_hi = 0.385 for CuSn outbending where the service uses 0.415, an 8% difference. The split is subtle and must be preserved: the CORRECTION POLYNOMIALS come from the parameter file; the CUT WINDOW does not. Verified against the old VzCorrectorService.hpp, which returns VoigtWindow{-2.916, 0.370, -7.861, 0.415} for CuSn outbending and {-2.906, 0.373, -7.887, 0.395} for CxC outbending. If you ever reconcile this project with a parameter file, reconcile it TO these numbers -- these are what produced the published selection.",
+    "_naming_trap_comment": "SECOND TRAP, for anyone porting the old code: the internal names 'lo'/'hi' referred to the PEAK PARAMETER SET, not to z ordering. mu_hi = -7.861 is the MORE NEGATIVE, i.e. further UPSTREAM, position. The old doc-comment calling the 'hi' peak 'downstream' is backwards. The code's assignment (Cu <-> -7.86, Sn <-> -2.92) is self-consistent and agrees with the legacy lookup table: trust the numbers, not the prose. This file drops lo/hi entirely and names targets explicitly to make the trap unreachable.",
+    "_legacy_table_comment": "A separate, legacy raw-v_z table exists in the old tree and is used by the standalone electron_analysis binary. It is NOT the pi0 path, and for the solid targets it gives materially different windows. Do not use electron_analysis as a proxy for this analysis's electron selection, and do not import its numbers here.",
+    "_peaks_semantics_comment": "Acceptance rule for corrected targets: accept if |v_z_corr - mu| < n_sigma * sigma for ANY peak in the 'peaks' array. Cu and Sn list one peak each; CxC lists two and accepts either.",
+    "targets": {
+      "ld2": {
+        "_comment": "Raw v_z, correction DISABLED. A flat window, not a peak-and-sigma rule. The window bounds are the note's tab:vz values verbatim.",
+        "correction_enabled": false,
+        "rule": "raw_window",
+        "vz_min_cm": -15.0,
+        "vz_max_cm": 5.0
+      },
+      "cu": {
+        "_comment": "Corrected, upstream peak only. Resulting window -9.106 to -6.616 cm (= -7.861 -+ 3*0.415), which matches the note's tab:vz -- if your code produces a different window from these inputs, the code is wrong.",
+        "correction_enabled": true,
+        "rule": "corrected_peaks",
+        "n_sigma": 3.0,
+        "peaks": [
+          {
+            "mu_cm": -7.861,
+            "sigma_cm": 0.415
+          }
+        ]
+      },
+      "sn": {
+        "_comment": "Corrected, downstream peak only. Resulting window -4.026 to -1.806 cm (= -2.916 -+ 3*0.370), matching the note's tab:vz.",
+        "correction_enabled": true,
+        "rule": "corrected_peaks",
+        "n_sigma": 3.0,
+        "peaks": [
+          {
+            "mu_cm": -2.916,
+            "sigma_cm": 0.37
+          }
+        ]
+      },
+      "cxc": {
+        "_comment": "Corrected, EITHER peak -- the union of both +-3 sigma windows. CxC is two carbon foils occupying the same two z slots as the Cu and Sn foils, which is why it accepts either peak. Note that the CxC peak parameters are close to but NOT identical with the Cu/Sn ones (-7.887/0.395 vs -7.861/0.415, -2.906/0.373 vs -2.916/0.370); they are separate measurements and must not be deduplicated.",
+        "correction_enabled": true,
+        "rule": "corrected_peaks",
+        "n_sigma": 3.0,
+        "peaks": [
+          {
+            "mu_cm": -7.887,
+            "sigma_cm": 0.395
+          },
+          {
+            "mu_cm": -2.906,
+            "sigma_cm": 0.373
+          }
+        ]
+      }
+    }
+  },
+  "mgg_histogram": {
+    "_comment": "Note sec:subtraction. 200 bins over [0.0, 0.3] GeV = 1.5 MeV per bin. This binning is shared by the same-event and mixed-event spectra and is what the sideband normalisation and the yield window sum are computed on -- changing it changes the yield, so it is a cut value, not a plotting preference.",
+    "min_gev": 0.0,
+    "max_gev": 0.3,
+    "bins": 200,
+    "_bin_width_gev": 0.0015,
+    "_consumer_comment": "This block was DECLARED AND NEVER READ until stageB_bin needed it (2026-07-16) -- the fourth time this file's founding defect has been found inside the file written to end it, after pairing.z_min/z_max and the whole /mixing block. It is now read by Cuts::load into Cuts::mgg_histogram, and stageB_bin turns it into a Grid1D so the mass axis shares the project's one set of bin-boundary semantics."
+  },
+  "bsa": {
+    "_comment": "The phi_h axis of the beam-spin-asymmetry histogram (stageB_bin). 12 uniform bins of 30 degrees over [-180, 180]. Read by Cuts::load into Cuts::bsa; stageB_bin builds a Grid1D from it, so it inherits the project's one set of bin-boundary semantics: half-open [lo, hi), a value on the TOP edge lands in the LAST bin rather than nowhere, out-of-range and NaN give -1, no flow bins.",
+    "n_phi_bins": 12,
+    "phi_min_deg": -180.0,
+    "phi_max_deg": 180.0,
+    "_range_comment": "THE RANGE IS NOT A FREE CHOICE. pi0::kin::compute_sidis returns phi_h from atan2 in the TRENTO convention, so it lands in [-180, 180]. An axis over [0, 360] -- the other common convention -- would put every negative phi_h off the grid, and an off-grid value is DISCARDED WITHOUT AN ERROR: half the data would vanish silently and the asymmetry would still fit and still look like an asymmetry. Cuts::load refuses any axis narrower than [-180, 180] for exactly that reason. If the convention ever changes, change the producer and this key together.",
+    "_helicity_comment": "There is deliberately NO helicity key here. helicity == 0 means UNDEFINED (REC::Event.helicity, 0=UDF -- see stageA_skim's helicity.convention provenance), not a third state to configure. stageB_bin fills the BSA for helicity == +-1 only, and lets helicity == 0 events enter every other output, because the m_gg spectra, the donor pool and N_DIS are all helicity-blind. Dropping helicity == 0 from the pool would shrink the donor sample for no physics reason and give the mixed background a different parent sample from the same-event spectrum it has to subtract from.",
+    "_n_bins_comment": "12 is a design knob, not a measurement -- the granularity the sin(phi_h) moment is fitted on. The BSA is additionally binned in m_gg so the dilution S/(S+B) can be MEASURED per phi_h bin rather than assumed flat; that is what the old analysis, which binned the BSA over a +-200 MeV window with no subtraction, could not do."
+  },
+  "extraction": {
+    "_comment": "Note sec:subtraction and sec:yield-extraction. The yield is NOT the integral of a fitted Gaussian. Procedure: (1) subtract the sideband-scaled mixed spectrum, S(m) = N_same(m) - alpha*N_mixed(m) with variance sigma_S^2(m) = N_same(m) + alpha^2*N_mixed(m); (2) fit S(m) with a PURE Gaussian -- no background term, the background is already gone -- over fit_range; (3) iteratively restrict to the core, refitting over [mu - core_k*sigma, mu + core_k*sigma], up to n_iter iterations, stopping when mu and sigma both change by less than convergence_tol_frac; (4) sum the SUBTRACTED HISTOGRAM over mu +- n_sigma_window*sigma. Steps 2-3 exist ONLY to locate the integration window -- the fit amplitude never enters the yield. That is deliberate and defensible: it makes the yield insensitive to the Gaussian's inability to describe the peak's non-Gaussian tails, at the cost of a mild sensitivity to the fitted mu and sigma.",
+    "_stale_docstring_comment": "TRAP: the old script's own header claimed the yield was N = A*sigma*sqrt(2*pi)/w_bin with the error from the full covariance matrix. THAT IS NOT WHAT PRODUCED R_A. The analytic integral and its covariance-propagated error are implemented but used only in a pedagogical demonstration plot. The published yield is the +-3 sigma window sum described above.",
+    "sideband_min_gev": 0.17,
+    "sideband_max_gev": 0.28,
+    "_sideband_comment": "alpha = sum(N_same) / sum(N_mixed) over this range. A SINGLE HIGH-MASS sideband: a low-mass sideband is available in principle but is deliberately NOT used, because at low m_gg the spectrum is distorted by the opening-angle cut (pairing.opening_angle), which removes precisely the small-angle pairs that populate it, so the mixed and same spectra are not expected to share a shape there. TRAP: the old C++ defined SIDEBAND_LOW/HIGH = 0.19/0.24 GeV -- those constants appeared in a LOG LINE and were NEVER APPLIED TO DATA. The Python values (0.17, 0.28) are what ran. Do not quote 0.19/0.24 as the analysis values; they disagree with what is used. KNOWN OMISSION: the uncertainty on alpha is NOT propagated -- the subtraction treats it as exact. Given the sideband's large counts this is a small effect, but it is a real omission and it is trivially fixable.",
+    "fit_range_min_gev": 0.08,
+    "fit_range_max_gev": 0.2,
+    "_fit_range_comment": "Initial Gaussian fit range for locating the peak. TRAP: the old C++ defined FIT_RANGE_LOW/HIGH = 0.10/0.16 GeV -- same story as the sideband constants, log-line only, never applied. The Python [0.08, 0.20] is what ran.",
+    "n_sigma_window": 3.0,
+    "_n_sigma_window_comment": "Y = sum of S(m) over mu +- 3 sigma, with sigma_Y^2 = sum sigma_S^2(m). Centred on the FITTED mu, not on the nominal pi0 mass -- this is what absorbs the 4.4% energy-scale deficit documented in pairing._pi0_mass_comment.",
+    "core_k": 1.5,
+    "_core_k_comment": "Core refit half-width in units of sigma: refit over [mu - 1.5 sigma, mu + 1.5 sigma]. Distinct from n_sigma_window (3.0) -- 1.5 locates the peak, 3.0 integrates it. Do not conflate them.",
+    "n_iter": 2,
+    "_n_iter_comment": "Maximum core-refit iterations ('up to 2 iterations').",
+    "convergence_tol_frac": 0.01,
+    "_convergence_tol_comment": "Stop iterating when mu AND sigma both change by less than 1%.",
+    "fit_bounds": {
+      "_comment": "Gaussian A*exp(-(m - mu)^2 / (2 sigma^2)). Fitted with absolute_sigma=True so the errors are NOT rescaled by chi2/ndf. amp_max is unbounded: represented as null, meaning +infinity -- JSON has no infinity literal, so consumers must map null to the platform infinity, NOT to zero and NOT to a large finite sentinel.",
+      "amp_min": 0.0,
+      "amp_max": null,
+      "mu_min_gev": 0.1,
+      "mu_max_gev": 0.18,
+      "sigma_min_gev": 0.003,
+      "sigma_max_gev": 0.05
+    },
+    "fit_seed": {
+      "_comment": "Initial parameter guess, note sec:yield-extraction: (max S, 0.135, 0.012). amp_seed is data-derived (the maximum of the subtracted spectrum) and so is not a constant here; it is described rather than stored.",
+      "amp_seed": "max_of_subtracted_spectrum",
+      "mu_seed_gev": 0.135,
+      "sigma_seed_gev": 0.012
+    },
+    "min_stats": 5,
+    "_min_stats_comment": "Quality gate: at least 5 raw same-event entries. In the old production ALL 1450 leaves survived for all three targets -- zero rejections -- so this gate has never actually fired. Keep it anyway; it is cheap insurance, not a tuned value.",
+    "min_peak_amp": 1.0,
+    "_min_peak_amp_comment": "Quality gate: subtracted peak amplitude of at least 1 count. Same story as min_stats -- never fired in production."
+  },
+  "mixing": {
+    "_comment": "Note sec:mixing / tab:pool. The background shape is estimated by EVENT MIXING: pairing photons from DIFFERENT events, which by construction cannot contain a true pi0 -> gamma gamma and therefore trace the pure combinatorial shape while retaining the single-photon kinematics and the detector acceptance. Event mixing is the ONLY background estimate in this analysis -- the rotated/swapped-photon cross-check described in earlier drafts DOES NOT EXIST and was never implemented. Ordering is mix-then-insert, which is the detail that makes self-mixing impossible; pairing is exhaustive (the current event's photons against EVERY photon in the pool), not a fixed number of trials, so mixed-event statistics greatly exceed same-event statistics and the background shape is not statistics-limited.",
+    "donors_per_bin": 200,
+    "_donors_per_bin_comment": "DESIGN KNOB FOR THIS PROJECT -- NOT inherited, and NOT comparable to the old value. The old analysis used a rolling FIFO of depth 50 EVENTS with exhaustive current-x-pool pairing. This project replaces that with a FROZEN DONOR POOL: a seeded, deterministic pre-pass selects donors_per_bin donor events per pool bin, after which mixing is a pure function of (event, pool). Rationale for the change, beyond reproducibility: (a) with a rolling FIFO the pool is COLD for early events and WARM for late ones, so the background is time-dependent within a file -- in an analysis whose largest unevaluated systematic is run-to-run drift; (b) a frozen pool is const, so it needs none of the old code's 32 shards and shared_mutex; (c) self-mixing is impossible by construction rather than by a mix-then-insert ordering convention a maintainer could silently reorder. 200 is a STARTING VALUE, not a measurement. For scale, the old scheme's warm pool held ~50 events x ~3 photons ~ 150 donor photons per bin. TUNE THIS against the ratio of mixed to same statistics actually wanted, and keep the old code's best QA feature: warn for every bin that never reaches this depth.",
+    "seed_mode": "file_hash",
+    "_seed_mode_comment": "Seed for the frozen-donor-pool reservoir sampling. The OLD analysis had no mixing RNG (its FIFO was fully deterministic), so there is no inherited value here -- this knob exists because THIS project's pool is built by sampling and therefore must be seeded to be reproducible. 'file_hash' derives the seed from the input file identity, so a given file always yields the same pool regardless of thread scheduling, and (slim file, seed, donors_per_bin) fully determines every mixed pair. All three go in the output provenance header. Unrelated note for the avoidance of doubt: the unseeded-RNG defect recorded in the analysis note was in the kd-tree BINNING (two scan passes gave different edges), not in mixing; this project uses frozen rectangular grids loaded from config, so that defect cannot recur here.",
+    "pool_grid": {
+      "_comment": "Note eq:pool-key. The pool is keyed on (i_Q2, i_xB, i_mult) = 8 x 7 x 4 = 224 bins. Matching on Q2 and x_B ensures the mixed events have similar DIS kinematics; matching on photon multiplicity ensures the combinatorics are comparable. The Q2 and x_B edges are the CONFIGURATION PRODUCT EDGES -- the same grid the DIS normalisation denominator N_DIS(Q2, x_B) is histogrammed on. They must stay identical between the two uses; that shared identity is the reason they live here once rather than in two places. TRAP: the old [Pi0Analysis] W_edges and nu_edges keys were declared and registered but NEVER READ -- the pool key dropped W and nu, while the config comment still described a five-dimensional pool key. There is no W or nu in this key; do not add them back believing you are restoring something.",
+      "q2_edges_gev2": [
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        4.0,
+        5.0,
+        7.0,
+        11.0
+      ],
+      "_q2_edges_comment": "9 edges -> 8 bins. Note sec:aux-grids.",
+      "xb_edges": [
+        0.1,
+        0.15,
+        0.2,
+        0.25,
+        0.3,
+        0.4,
+        0.5,
+        0.7
+      ],
+      "_xb_edges_comment": "8 edges -> 7 bins. Note sec:aux-grids. TRAP inherited from the normalisation use of this same grid: the 2D N_DIS histogram has FLOW BINS, so events with x_B < 0.1 or x_B > 0.7 land outside the grid. The in-grid sum is therefore NOT the total DIS count, and leaf integration is only meaningful for leaves inside this grid's span.",
+      "n_photons_classes": [
+        {
+          "label": "1",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "label": "2",
+          "min": 2,
+          "max": 2
+        },
+        {
+          "label": "3",
+          "min": 3,
+          "max": 3
+        },
+        {
+          "label": ">=4",
+          "min": 4,
+          "max": null
+        }
+      ],
+      "_n_photons_classes_comment": "Photon multiplicity class i_mult in {1, 2, 3, >=4}: 4 classes. max = null means OPEN-ENDED (no upper bound) -- the >=4 class absorbs every higher multiplicity. Events with 0 photons produce no pairs and enter no class."
+    }
+  }
+}

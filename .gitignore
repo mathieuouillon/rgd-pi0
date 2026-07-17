@@ -1,0 +1,38 @@
+# meson build directories
+/build/
+/build-*/
+/builddir/
+
+# meson subproject machinery. external/hipo-cpp is a SUBMODULE pinned to the
+# exact upstream commit this analysis was built against -- clone with
+# --recurse-submodules. Everything else meson fetches or generates in
+# external/ (catch2, fmt, packagecache) is not tracked.
+/external/*/
+!/external/hipo-cpp/
+/external/packagecache/
+/external/.wraplock
+
+# analysis output
+/results/
+
+# python
+__pycache__/
+*.py[cod]
+
+# ROOT
+*.root
+*.pcm
+*.rootmap
+.rootrc
+*.d
+*.so
+*.dylib
+
+# macOS
+.DS_Store
+
+# editors
+.vscode/
+.idea/
+*.swp
+compile_commands.json
