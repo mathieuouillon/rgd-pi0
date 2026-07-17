@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rgd-pi0"
+version = "0.1.0"
+description = "Extraction stage for the RG-D pi0 -> gamma gamma nuclear multiplicity analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "LGPL-3.0-or-later" }
+dependencies = [
+    "uproot>=5",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+pi0-qa = "pi0.qa:main"
+pi0-ratio = "pi0.ratio:main"
+pi0-broadening = "pi0.broadening:main"
+pi0-bsa = "pi0.bsa:main"
+
+[tool.setuptools]
+packages = ["pi0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

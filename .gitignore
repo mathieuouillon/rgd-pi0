@@ -15,9 +15,13 @@
 # analysis output
 /results/
 
-# python
+# python. uv.lock IS tracked, deliberately: it pins the exact uproot/numpy/scipy
+# that produced a given number -- the same argument as hashing the config.
 __pycache__/
 *.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
 
 # ROOT
 *.root

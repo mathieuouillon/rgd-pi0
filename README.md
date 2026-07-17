@@ -12,10 +12,19 @@ gamma-gamma pair and *not* necessarily a $\pi^0$.
 
 | Path                  | What                                                                       |
 | --------------------- | -------------------------------------------------------------------------- |
-| `src/core/`           | Pure analysis code → static lib `pi0_core`. No HIPO. No ROOT beyond `ROOT::VecOps::RVec`. Unit-testable without a data file. |
-| `src/tools/`          | ROOT-dependent programs (`.cxx`).                                          |
-| `tests/`              | Catch2 v3 unit tests for `src/core`.                                       |
-| `external/hipo-cpp/`  | **Vendored dependency — do not modify.** See below.                        |
+| `config/`             | **The only place cut values live.** `cuts.json` + the frozen binning grids. A cut value appearing in code is a bug. |
+| `src/core/`           | Pure analysis code → static lib `pi0_core`: constants, kinematics, γγ pairing, binning. No HIPO. Unit-testable without a data file. |
+| `src/config/`         | `Cuts::load()` — parses `cuts.json`, fails loudly on a missing key.        |
+| `src/photonid/`       | The CatBoost photon classifier: 45-feature builder, run→model map, models. **Models are vendored verbatim — never edit.** |
+| `src/vertex/`         | The vertex correction and the per-target `v_z` windows.                    |
+| `src/selection/`      | Electron and photon selection; the sampling-fraction tables.               |
+| `src/stageA_skim/`    | **Stage A** — HIPO → slim TTree.                                           |
+| `src/stageB_bin/`     | **Stage B** — slim → binned spectra + kinematic sums. Includes the frozen donor pool. |
+| `src/tools/`          | `dump_columns` (RHipoDS column probe), `make_grid` (equal-statistics grids). |
+| `python/pi0/`         | **Stage C** — extraction: yields, $R_A$, $\Delta\langle p_T^2\rangle$, $A_{LU}$, QA. |
+| `data/Vz/`            | Vertex-correction parameters. Vendored verbatim.                           |
+| `tests/`              | Catch2 v3 unit tests (C++). `python/tests/` for pytest.                    |
+| `external/hipo-cpp/`  | **Submodule, pinned. Do not modify.** See below.                           |
 | `meson/native-macos.ini` | Native file for macOS + Homebrew. See below.                            |
 
 Includes within the project are project-relative — the build adds `src/` as an
@@ -85,14 +94,324 @@ network once). To skip tests entirely:
 meson setup build --native-file meson/native-macos.ini -Dbuild_tests=false
 ```
 
-### Running the built programs
+### Interactive ROOT
 
-`meson devenv -C build` exports `ROOT_INCLUDE_PATH` for you, which matters if an
-interactive ROOT session needs to load the HipoDataFrame dictionary:
+The built programs need no environment (meson bakes the rpath into the build
+tree). But an interactive ROOT session that has to load the HipoDataFrame
+dictionary does need `ROOT_INCLUDE_PATH`; `meson devenv -C build` exports it for
+you:
 
 ```sh
 meson devenv -C build
 ```
+
+## Running the analysis
+
+The analysis is four stages. Each is a separate program, each takes exactly one
+input, and **each stamps its provenance into its output** — inputs, config hash,
+grid hashes, the photon model used, whether a fallback was taken. The next stage
+reads that block back and refuses to build physics on something unpublishable.
+That refusal is the design, not an obstacle: see [Refusals](#refusals-and-what-they-mean).
+
+```
+  HIPO DST                                       one file per run
+     │
+     │  stageA_skim      electron + DIS + GBT photon selection
+     ▼
+  slim.root             TTree "events": DIS kinematics + selected photon momenta
+     │
+     ├─ make_grid       (once) equal-statistics grid edges → config/binning/*.json
+     │
+     │  stageB_bin       γγ pairing, frozen donor pool, binning
+     ▼
+  binned.root           per-bin m_γγ spectra (same + mixed), kinematic sums,
+     │                  N_DIS, BSA counts
+     │  python -m pi0.*  yield extraction, R_A, Δ⟨pT²⟩, A_LU, QA
+     ▼
+  CSV + figures
+```
+
+Each program prints a cutflow and its provenance block on success, and takes no
+environment to run.
+
+---
+
+### Step 0 — `dump_columns` (optional, diagnostic)
+
+Prints the RDataFrame column names RHipoDS exposes for a HIPO file. Use it when a
+bank name is in doubt: it is the ground truth for the naming contract the rest of
+the project depends on (HIPO `::` and `.` each become `_`, so `REC::Particle.px`
+→ `REC_Particle_px`).
+
+```sh
+./build/src/tools/dump_columns <file.hipo> [prefix]
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `<file.hipo>` | any HIPO file |
+| `[prefix]` | filter, default `REC_`. Pass `""` to list every column (order 1000, depending on the banks the file carries). |
+
+---
+
+### Step 1 — `stageA_skim`: HIPO → slim
+
+Applies the electron selection (including the target's $v_z$ window), the DIS
+cuts, and the GBT photon selection. Writes one entry per surviving DIS event.
+
+```sh
+./build/src/stageA_skim/stageA_skim \
+    --input  /path/to/rec_clas_018500.hipo \
+    --output slim/LD2_018500.root \
+    --config config/cuts.json \
+    --target LD2
+```
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `--input <file.hipo>` | yes | **One** HIPO file. Entry numbering restarts per file — do not chain. |
+| `--output <slim.root>` | yes | Slim ROOT file to create (overwritten if present). |
+| `--config <cuts.json>` | yes | Every threshold comes from here. |
+| `--target <LD2\|CxC\|Cu\|Sn>` | yes | Selects the vertex window. **For Cu/Sn this *is* the target assignment** — the two foils are distinguished only by $v_z$. |
+| `--run <N>` | no | Override the run used to pick the GBT model. Normally read from `RUN::config`; pass only if the file's run is absent or wrong. |
+| `--max-events <N>` | no | Stop after N tag-0 events. For smoke tests. The output is a **prefix**, not a sample — stamped into the provenance so a partial run cannot pass for a full one. |
+
+**Exit codes:** `0` ok · `1` usage · `2` no run number found · `3` **no GBT model
+covers this run** · `4` general · `5` file holds more than one run.
+
+Only tag-0 (physics) events are read; RHipoDS applies that filter and it is
+correct. A file may hold many non-tag-0 events that are correctly excluded.
+
+> **Exit 3 is expected on RG-D.** No trained GBT photon model exists for runs
+> 18305–19131 — the map stops at 16772. See [the RG-D photon gap](#the-rg-d-photon-gap).
+
+Run one job per HIPO file; the stage is deliberately single-file so that the
+donor pool downstream is built per file.
+
+---
+
+### Step 2 — `make_grid`: freeze the binning (once per production)
+
+Computes equal-statistics (quantile) edges from real slim files and writes them to
+JSON. **Do this once**, commit the result, and never let it drift: those two files
+*are* the binning of the production, and the reason they are in version control is
+that the superseded analysis's kd-tree edges lived only on `/work` and are now
+unrecoverable.
+
+```sh
+./build/src/tools/make_grid/make_grid \
+    --input slim/LD2_018500.root --input slim/LD2_018501.root \
+    --config config/cuts.json \
+    --out-a config/binning/grid_A_q2_xb.json \
+    --out-b config/binning/grid_B_z_pt2.json
+```
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `--input <slim.root>` | yes | Repeat for more. Edges are quantiles of the pooled sample; order affects only the provenance listing. |
+| `--config <cuts.json>` | yes | Grid shape, pairing cuts and the z window come from here. Its hash is stamped into both outputs and checked against what each input recorded at skim time. |
+| `--out-a <json>` | yes | Grid A = $(Q^2, x_B)$, per **event**. |
+| `--out-b <json>` | yes | Grid B = $(z, p_T^2)$, per **π⁰**. |
+| `--na WxH` | no | Override `binning.grid_a`, e.g. `8x7`. See the warning below. |
+| `--nb WxH` | no | Override `binning.grid_b`, e.g. `5x5`. Ditto. |
+| `--max-events <N>` | no | Stop after N events across all inputs. A **prefix**, not a random subset — the edges are then not the edges of the full dataset. Stamped into the output. |
+| `--cap-z <v>` | no | Clamp Grid B's top $z$ edge and **discard** π⁰ above it. |
+| `--cap-pt2 <v>` | no | The same for $p_T^2$, in GeV². |
+
+> **`--na`/`--nb` do not write back to `cuts.json`.** They change the grid the C++
+> emits but leave the config's shape saying something else, and `pi0.config` then
+> refuses the pair outright — *"cuts.json binning/grid_a/n_q2 = 8 but the grid file
+> gives 2. The configuration is internally inconsistent; fix it, do not guess."*
+> To change the shape for a production, **edit `cuts.json` and re-run `make_grid`
+> without the overrides**. The flags are for quick experiments only.
+
+> **The caps default to off and should usually stay off.** With the
+> count-weighted abscissae Stage B accumulates, a wide outer bin is honestly
+> *positioned* even though it is coarse — so capping throws away data to solve a
+> problem that is already solved. See `config/cuts.json` `/binning/_cap_comment`.
+
+Grid B is computed **once over all π⁰**, not per Grid A cell. That factorization
+is a deliberate simplification against the old nested kd-tree, and it is recorded
+in the output JSON.
+
+---
+
+### Step 3 — `stageB_bin`: slim → binned
+
+Two passes over the slim file. Pass 0 builds the **frozen donor pool** with a
+seeded pre-pass; pass 1 bins, with mixing reduced to a stateless lookup against a
+`const` pool. That is what makes the background bit-for-bit reproducible.
+
+```sh
+./build/src/stageB_bin/stageB_bin \
+    --input  slim/LD2_018500.root \
+    --output binned/LD2_018500.root \
+    --config config/cuts.json \
+    --grid-a config/binning/grid_A_q2_xb.json \
+    --grid-b config/binning/grid_B_z_pt2.json
+```
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `--input <slim.root>` | yes | One Stage A file (TTree `events`). |
+| `--output <binned.root>` | yes | Binned ROOT file to create. |
+| `--config <cuts.json>` | yes | Every threshold and every axis. |
+| `--grid-a <json>` | yes | The frozen $(Q^2,x_B)$ grid. Its hash is stamped into the output. |
+| `--grid-b <json>` | yes | The frozen $(z,p_T^2)$ grid. Ditto. |
+| `--max-events <N>` | no | Stop after N entries. **Both passes are truncated identically** — a pool built from more events than were binned would estimate the background from a sample the spectra never saw. |
+
+**Output** — four flat TTrees, readable by uproot with no ROOT and no dictionary:
+
+| Tree | Rows | Contents |
+| --- | --- | --- |
+| `spectra` | dense, 1400 × 200 | `bin4d, imgg, n_same, n_mixed, sum_q2, sum_xb, sum_z, sum_pt2` — the kinematic sums are **same-event only**. |
+| `ptb3d` | dense, 280 × 200 | `bin3d, imgg, counts, sum_pt2, sum_pt4` — binned in $m_{\gamma\gamma}$ so $\Delta\langle p_T^2\rangle$ can be sideband-subtracted. |
+| `n_dis` | 56 | `cell_a, n_dis` — filled **once per event**, not per π⁰. The $R_A$ denominator. |
+| `bsa` | **sparse** | `bin4d, imgg, iphi, helicity, counts`. Decode **via the index columns**; a positional read is silently wrong. |
+
+Index decoding (also implemented in `python/pi0/config.py`, the only place that
+knows it):
+
+```
+cell_a = iq2 * n_xb  + ixb           bin4d = cell_a * (n_z * n_pt2) + cell_b
+cell_b = iz  * n_pt2 + ipt2          bin3d = cell_a * n_z + iz
+m_γγ bin centre = mgg_histogram.min_gev + (imgg + 0.5) * bin_width
+```
+
+The axis sizes come from `cuts.json` — `binning.grid_a`, `binning.grid_b`,
+`mgg_histogram`. With the shipped 8×7 and 5×5 that is 56 Grid A cells, 1400 4D
+bins, 280 3D bins and 200 mass bins over [0, 0.3] GeV. **Read them from the
+config, don't hard-code them**; changing the shape changes every index above.
+
+The `sum_*` columns are what make the count-weighted abscissae work: each 4D bin
+carries its own $\langle Q^2\rangle, \langle x_B\rangle, \langle z\rangle,
+\langle p_T^2\rangle$ per mass bin, so the reported abscissa is
+sideband-subtracted exactly like the yield rather than being the geometric centre
+of the box. In the superseded analysis 52.6% of leaves were reported at a centre
+that was not where the data was, and 6.9% at a point no event could occupy.
+
+---
+
+### Step 4 — `python -m pi0.*`: extraction
+
+The Python stage reads the Stage B ROOT files with **uproot** — no ROOT, no C++,
+no dictionaries. It runs anywhere, including a laptop with none of Step 1–3's
+dependencies installed.
+
+```sh
+cd python
+python -m venv .venv && . .venv/bin/activate
+pip install -e .            # or: pip install -e '.[test]' && pytest
+```
+
+That also installs four console scripts — `pi0-qa`, `pi0-ratio`,
+`pi0-broadening`, `pi0-bsa` — equivalent to the `python -m pi0.*` forms used
+below. With `uv`, `uv run python -m pi0.<module> ...` needs no venv step.
+
+> **`--config` takes the config *directory* here**, not the file — the Python
+> stage reads `cuts.json` *and* both grid JSONs and checks their hashes against
+> what the input recorded. The C++ programs take the file. And `pi0.bsa` takes
+> `--file`, while `pi0.ratio` and `pi0.broadening` take `--target` / `--ld2`.
+
+#### `pi0.qa` — diagnostics (start here)
+
+```sh
+python -m pi0.qa --file ../binned/LD2_018500.root --config ../config --outdir figs/
+```
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `--file` | yes | A Stage B file. |
+| `--config` | yes | The `config/` **directory**. |
+| `--outdir` | yes | Where the figures go. |
+| `--allow-unpublishable` | no | Proceed despite fatal provenance blockers. Figures get a **watermark**. |
+| `--shared-window` | no | Locate every bin's mass window with the fit to the *summed* spectrum instead of its own. **Not the production path** — a fallback for files whose per-bin statistics cannot support a fit. Labelled on the output. |
+
+The figure worth looking at is the **abscissa-vs-bin-centre** plot: it shows what
+the count-weighted mean bought over the geometric centre.
+
+#### `pi0.ratio` — the multiplicity ratio $R_A$
+
+```sh
+python -m pi0.ratio --target ../binned/Sn.root --ld2 ../binned/LD2.root \
+                    --config ../config --out ra_Sn.csv
+```
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `--target` | yes | Stage B file for the **nuclear** target. |
+| `--ld2` | yes | Stage B file for **LD2** — always the denominator. |
+| `--config` | yes | The `config/` directory. |
+| `--out` | yes | Output CSV. |
+| `--allow-unpublishable` | no | As above. Output is diagnostic only. |
+
+Needs **two different targets**. Passing the same file twice is refused —
+dividing a target by itself measures nothing.
+
+#### `pi0.broadening` — $\Delta\langle p_T^2\rangle$
+
+```sh
+python -m pi0.broadening --target ../binned/Sn.root --ld2 ../binned/LD2.root \
+                         --config ../config --out dpt2_Sn.csv
+```
+
+Same options as `pi0.ratio`. **Sideband-subtracted**, unlike the superseded
+analysis, whose moments were accumulated over a ±200 MeV window with no
+subtraction and are therefore diluted by an unknown factor.
+
+#### `pi0.bsa` — $A_{LU}$
+
+```sh
+python -m pi0.bsa --file ../binned/LD2.root --config ../config --out bsa.csv \
+                  --polarization 0.86 --polarization-err 0.03
+```
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `--file` | yes | A Stage B file. |
+| `--config` | yes | The `config/` directory. |
+| `--out` | yes | Output CSV. |
+| `--polarization P` | **yes*** | The measured beam polarization. **No default.** |
+| `--polarization-err σ_P` | **yes*** | Its uncertainty — a fully-correlated scale error on every $A$. |
+| `--allow-uncorrected-dilution` | no | Emit bins whose $S/(S+B)$ could not be measured. Those $A_{LU}$ are then **lower bounds**. Off by default; such bins are dropped. |
+| `--allow-unpublishable` | no | As above. |
+
+\* unless `cuts.json` `/bsa/polarization/value` is set. It is `null` on purpose.
+`pi0.bsa` **refuses to run** without a polarization rather than substituting one —
+the old code's `0.85` was a self-declared placeholder, and every $A_{LU}$ it
+published scales by $0.85/P_\text{true}$.
+
+---
+
+## Refusals, and what they mean
+
+The pipeline refuses rather than producing a plausible-looking wrong number. If
+something refuses, that is the tool working. The refusals, and the fix for each:
+
+| Refusal | Why | What to do |
+| --- | --- | --- |
+| `stageA_skim` exit **3**, "no GBT photon model covers this file" | The run is outside every trained model's range. RG-D is. | See below. Set `photon.allow_rga_fallback: true` **only** for a study you will report as such. |
+| `ProvenanceError: N fatal provenance blocker(s)` | The file was made with placeholder grids, a fallback model, a drifted config, or was truncated. | Fix the cause. `--allow-unpublishable` forces it, watermarks every figure, and the numbers are then diagnostic only. |
+| "both files carry `target='LD2'`" | $R_A$ needs two different targets. | Pass a nuclear target and LD2. |
+| "No beam polarization" | There is no measured RG-D Møller number. | `--polarization P --polarization-err σ_P`, or fill the config key. |
+| `below_min_stats` on every bin | Too few π⁰ for per-bin fits. | More data. `--shared-window` (QA only) will show you the shape meanwhile. |
+| `negative_variance` | Subtraction drove $\langle p_T^4\rangle < \langle p_T^2\rangle^2$. | Low statistics. The gate rejects it rather than emit an imaginary error bar. |
+
+### The RG-D photon gap
+
+**No trained GBT photon model exists for RG-D** (runs 18305–19131). The model map
+stops at run 16772 — this is an upstream CLAS12 gap, not a local one, and it is
+identical in Iguana. The superseded analysis fell back to an **RG-A inbending
+pass-1** model *silently*; upstream at least logs a warning.
+
+Here the fallback is **opt-in, defaults to refusing, and is stamped into the
+provenance** when taken. Applying an RG-A inbending model to RG-D outbending
+nuclear-target data is a real assumption: the feature vector includes neighbour
+multiplicity, and calorimeter occupancy differs between LD₂ and Sn — precisely
+the direction in which photon efficiency would fail to cancel in a target ratio.
+
+Getting a real RG-D model is the single highest-value fix available to the photon
+selection. See `src/photonid/models/PROVENANCE.md`.
 
 ## Do not modify `external/hipo-cpp`
 

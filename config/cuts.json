@@ -180,9 +180,38 @@
     "n_phi_bins": 12,
     "phi_min_deg": -180.0,
     "phi_max_deg": 180.0,
+    "fit_bounds": {
+      "_comment": "Bounds on the single free parameter of the BSA fit model f(phi_h) = A sin(phi_h) (the note's eq:bsa-model, sec:bsa-fit). Added 2026-07-16 by the Python extraction stage: the superseded analysis carried these as bare literals in the fitting script, which is exactly what this file exists to end. A is a physical asymmetry and cannot exceed 1 in magnitude; 0.5 is the working bound inherited from the old code. IT IS A REAL BOUND, NOT A FORMALITY: two leaves in the old production RAILED at |A| = 0.5 with sigma_A ~ 4e-6, and inverse-variance weighting then returned A_LU(Cu) = -0.50 instead of +0.012. bsa/quality/amp_at_bound_tol_frac below is what catches that.",
+      "amp_min": -0.5,
+      "amp_max": 0.5
+    },
+    "quality": {
+      "_comment": "Fit-quality mask, applied IN THE PRODUCER (pi0/bsa.py) so that no consumer can be poisoned by a railed fit. Added 2026-07-16. The old chain had no such mask and its averaged A_LU(Cu) was a railed-fit artefact, not a measurement.",
+      "min_counts_per_bin": 200,
+      "_min_counts_per_bin_comment": "Minimum N+ + N- summed over the whole 4D bin, from the note's sec:bsa-signal quality gates (250 leaves, 237 survive).",
+      "min_counts_per_phi_bin": 5,
+      "min_phi_bins": 6,
+      "_min_phi_bins_comment": "Minimum surviving phi_h bins. With all 12 alive, ndf = n_phi - 1 = 11 for the single-parameter model.",
+      "amp_at_bound_tol_frac": 1e-06,
+      "_amp_at_bound_tol_frac_comment": "A fit whose |A| is within this fraction of fit_bounds/amp_max is AT THE BOUND, i.e. the minimiser walked into the wall and its reported error is meaningless. Reject it.",
+      "sigma_amp_min": 0.0001,
+      "_sigma_amp_min_comment": "Reject sigma_A below this. A per-leaf statistical error smaller than 1e-4 is not achievable at these statistics (the note quotes ~30% of A) and indicates a degenerate fit. The old production's railed leaves reported sigma_A ~ 4e-6.",
+      "max_chi2_ndf": 10.0,
+      "_max_chi2_ndf_comment": "Reject fits above this. The old production's railed leaves reported chi2/ndf ~ 1e11."
+    },
+    "polarization": {
+      "_comment": "BEAM POLARIZATION. THESE ARE NULL ON PURPOSE AND MUST STAY NULL until an RG-D Moller measurement is available for the run period. Null means NOT MEASURED. pi0/bsa.py REFUSES TO RUN when both this key and its --polarization argument are absent; it does not substitute a value. The superseded analysis hard-coded BEAM_POLARIZATION = 0.85, self-declared as a placeholder in its own source, and every A_LU it published is therefore provisional by a factor 0.85 / P_true (note sec:bsa-polarization). Its companion BEAM_POLARIZATION_ERR = 0.03 was defined and never imported anywhere, so the ~3.5% fully-correlated scale uncertainty is missing from every old number; `error` below is that value's proper home and IS propagated by pi0/bsa.py.",
+      "value": null,
+      "error": null
+    },
     "_range_comment": "THE RANGE IS NOT A FREE CHOICE. pi0::kin::compute_sidis returns phi_h from atan2 in the TRENTO convention, so it lands in [-180, 180]. An axis over [0, 360] -- the other common convention -- would put every negative phi_h off the grid, and an off-grid value is DISCARDED WITHOUT AN ERROR: half the data would vanish silently and the asymmetry would still fit and still look like an asymmetry. Cuts::load refuses any axis narrower than [-180, 180] for exactly that reason. If the convention ever changes, change the producer and this key together.",
     "_helicity_comment": "There is deliberately NO helicity key here. helicity == 0 means UNDEFINED (REC::Event.helicity, 0=UDF -- see stageA_skim's helicity.convention provenance), not a third state to configure. stageB_bin fills the BSA for helicity == +-1 only, and lets helicity == 0 events enter every other output, because the m_gg spectra, the donor pool and N_DIS are all helicity-blind. Dropping helicity == 0 from the pool would shrink the donor sample for no physics reason and give the mixed background a different parent sample from the same-event spectrum it has to subtract from.",
     "_n_bins_comment": "12 is a design knob, not a measurement -- the granularity the sin(phi_h) moment is fitted on. The BSA is additionally binned in m_gg so the dilution S/(S+B) can be MEASURED per phi_h bin rather than assumed flat; that is what the old analysis, which binned the BSA over a +-200 MeV window with no subtraction, could not do."
+  },
+  "broadening": {
+    "_comment": "Delta<pT2> (note sec:ptb-definition). Added 2026-07-16 by the Python extraction stage. UNLIKE THE SUPERSEDED ANALYSIS, the moments are sideband-subtracted: ptb3d is binned in m_gg precisely so that the same subtraction used for the yields applies to <pT2> and <pT4>. The old chain averaged pT2 over a +-200 MeV mass window with NO subtraction, so <pT2>^meas = f_S <pT2>^pi0 + (1 - f_S) <pT2>^bkg with f_S nowhere near 1, and its broadening is diluted toward zero by an unknown factor (note sec:ptb-caveat). The note itself names the fix -- 'accumulate sum pT2 and sum pT4 per m_gg bin so that the same sideband subtraction used for the yields can be applied to the moments' -- and Stage B now writes exactly that.",
+    "min_counts": 20,
+    "_min_counts_comment": "Minimum raw same-event entries in a 3D bin, from the note's sec:ptb-accumulators ('leaves with fewer than 20 entries are dropped; in practice all 320 survive'). Applied to the RAW same-event count, not the subtracted one, so the gate does not depend on the subtraction it gates."
   },
   "extraction": {
     "_comment": "Note sec:subtraction and sec:yield-extraction. The yield is NOT the integral of a fitted Gaussian. Procedure: (1) subtract the sideband-scaled mixed spectrum, S(m) = N_same(m) - alpha*N_mixed(m) with variance sigma_S^2(m) = N_same(m) + alpha^2*N_mixed(m); (2) fit S(m) with a PURE Gaussian -- no background term, the background is already gone -- over fit_range; (3) iteratively restrict to the core, refitting over [mu - core_k*sigma, mu + core_k*sigma], up to n_iter iterations, stopping when mu and sigma both change by less than convergence_tol_frac; (4) sum the SUBTRACTED HISTOGRAM over mu +- n_sigma_window*sigma. Steps 2-3 exist ONLY to locate the integration window -- the fit amplitude never enters the yield. That is deliberate and defensible: it makes the yield insensitive to the Gaussian's inability to describe the peak's non-Gaussian tails, at the cost of a mild sensitivity to the fitted mu and sigma.",
