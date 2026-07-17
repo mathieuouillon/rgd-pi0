@@ -1,0 +1,4 @@
+# Build output -- regenerate with `typst compile main.typ`
+main.pdf
+*.pdf.bak
+.DS_Store

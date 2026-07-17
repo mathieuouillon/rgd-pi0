@@ -22,6 +22,7 @@ gamma-gamma pair and *not* necessarily a $\pi^0$.
 | `src/stageB_bin/`     | **Stage B** — slim → binned spectra + kinematic sums. Includes the frozen donor pool. |
 | `src/tools/`          | `dump_columns` (RHipoDS column probe), `make_grid` (equal-statistics grids). |
 | `python/pi0/`         | **Stage C** — extraction: yields, $R_A$, $\Delta\langle p_T^2\rangle$, $A_{LU}$, QA. |
+| `note/`               | The physics analysis note (Typst). `cd note && typst compile main.typ`. The selection figures in it are produced by `pi0.plots_selection`. |
 | `data/Vz/`            | Vertex-correction parameters. Vendored verbatim.                           |
 | `tests/`              | Catch2 v3 unit tests (C++). `python/tests/` for pytest.                    |
 | `external/hipo-cpp/`  | **Submodule, pinned. Do not modify.** See below.                           |
