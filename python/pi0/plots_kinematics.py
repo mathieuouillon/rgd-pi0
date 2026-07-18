@@ -6,7 +6,7 @@ Python to draw:
 
 * ``kinematics_pi0.pdf``     -- the 2x2 coverage: M(gg), z, pT^2, phi_h,
 * ``phi_h_acceptance.pdf``   -- the phi_h acceptance for one target,
-* ``binning_grid_factorized.pdf`` -- the committed Grid A and Grid B edges.
+* ``binning_grid_factorized.pdf`` -- the committed edges over the pooled data.
 
 phi_h follows the Trento convention and is reported in DEGREES over
 ``[-180, 180]`` -- the convention of ``core/Kinematics.hpp``. (A prior figure
@@ -122,7 +122,7 @@ def reconstruct(ev: dict, cuts: dict) -> dict[str, np.ndarray]:
 def _load_slims(slimdir: Path, target: str, max_events: int | None) -> dict:
     import uproot
     files = sorted((slimdir / target).glob("*/slim_*.root"))
-    cols = ["q2", "nu", "ex", "ey", "ez", "ee", "gpx", "gpy", "gpz", "g_e_gamma_deg"]
+    cols = ["q2", "xb", "nu", "ex", "ey", "ez", "ee", "gpx", "gpy", "gpz", "g_e_gamma_deg"]
     acc = {c: [] for c in cols}
     seen = 0
     for f in files:
@@ -151,10 +151,15 @@ def main(argv: list[str] | None = None) -> int:
     mpl.use("Agg")
     mpl.rcParams.update({"savefig.dpi": 120, "savefig.bbox": "tight", "font.size": 9.5})
     import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
 
     recon = {}
+    events = {}  # per-event (x_B, Q^2) for the Grid A density overlay
     for t, _ in TARGETS:
-        recon[t] = reconstruct(_load_slims(args.slimdir, t, args.max_events), cuts)
+        ev = _load_slims(args.slimdir, t, args.max_events)
+        recon[t] = reconstruct(ev, cuts)
+        events[t] = {"q2": np.asarray(ev["q2"], float),
+                     "xb": np.asarray(ev["xb"], float)}
 
     def step(ax, data, lo, hi, nb, t, lbl):
         h, edges = np.histogram(data[(data >= lo) & (data <= hi)], bins=nb, range=(lo, hi),
@@ -193,24 +198,39 @@ def main(argv: list[str] | None = None) -> int:
     fig.savefig(args.outdir / "phi_h_acceptance.pdf")
     plt.close(fig)
 
-    # --- factorized grid from the committed edges --------------------------
+    # --- factorized grid, drawn over the pooled data it partitions ----------
+    # The density overlay is what makes the figure show its own caption: the
+    # equal-statistics packing (bins narrow where data is dense) and the empty
+    # corner cells left by the Q^2-x_B correlation. Pooled over all four
+    # targets, matching how make_grid fit the edges -- Grid A per event
+    # (x_B, Q^2), Grid B per pi0 (p_T^2, z).
     ga = json.load(open(args.grids / "grid_A_q2_xb.json"))
     gb = json.load(open(args.grids / "grid_B_z_pt2.json"))
     (q2e, xbe) = (ga["axes"][0]["edges"], ga["axes"][1]["edges"])
     (ze, pt2e) = (gb["axes"][0]["edges"], gb["axes"][1]["edges"])
+    xb_all = np.concatenate([events[t]["xb"] for t, _ in TARGETS])
+    q2_all = np.concatenate([events[t]["q2"] for t, _ in TARGETS])
+    pt2_all = np.concatenate([recon[t]["pt2"] for t, _ in TARGETS])
+    z_all = np.concatenate([recon[t]["z"] for t, _ in TARGETS])
+
+    def _grid(ax, xd, yd, xe, ye, xhi, title, xlabel, ylabel):
+        good = np.isfinite(xd) & np.isfinite(yd)
+        if good.any():
+            ax.hist2d(xd[good], yd[good], bins=(140, 140),
+                      range=[(xe[0], xhi), (ye[0], ye[-1])],
+                      cmap="Blues", cmin=1, norm=LogNorm())
+        for x in xe:
+            ax.axvline(x, color="0.25", lw=0.6)
+        for y in ye:
+            ax.axhline(y, color="0.25", lw=0.6)
+        ax.set(title=title, xlabel=xlabel, ylabel=ylabel,
+               xlim=(xe[0], xhi), ylim=(ye[0], ye[-1]))
+
     fig, (axa, axb) = plt.subplots(1, 2, figsize=(9.0, 4.0))
-    for x in xbe:
-        axa.axvline(x, color="0.6", lw=0.6)
-    for q in q2e:
-        axa.axhline(q, color="0.6", lw=0.6)
-    axa.set(title=r"Grid A  $(x_B, Q^2)$", xlabel=r"$x_B$", ylabel=r"$Q^2$ [GeV$^2$]",
-            xlim=(xbe[0], xbe[-1]), ylim=(q2e[0], q2e[-1]))
-    for x in pt2e:
-        axb.axvline(x, color="0.6", lw=0.6)
-    for z in ze:
-        axb.axhline(z, color="0.6", lw=0.6)
-    axb.set(title=r"Grid B  $(p_T^2, z)$", xlabel=r"$p_T^2$ [GeV$^2$]", ylabel=r"$z$",
-            xlim=(pt2e[0], min(pt2e[-1], 1.5)), ylim=(ze[0], ze[-1]))
+    _grid(axa, xb_all, q2_all, xbe, q2e, xbe[-1],
+          r"Grid A  $(x_B, Q^2)$", r"$x_B$", r"$Q^2$ [GeV$^2$]")
+    _grid(axb, pt2_all, z_all, pt2e, ze, min(pt2e[-1], 1.5),
+          r"Grid B  $(p_T^2, z)$", r"$p_T^2$ [GeV$^2$]", r"$z$")
     fig.tight_layout()
     fig.savefig(args.outdir / "binning_grid_factorized.pdf")
     plt.close(fig)
