@@ -48,7 +48,7 @@ targets.
 
 The $p_T^2$ moments are accumulated from the $pi^0$ *candidate* collection ---
 the greedy-paired, mass-windowed sample of @sec:pairing, which spans the full
-`pairing.mass_window` of `config/cuts.json` and so is mostly combinatorial. The
+`pairing.mass_window_gev` of `config/cuts.json` and so is mostly combinatorial. The
 key improvement over a naive average is that the moments are binned in
 $m_(gamma gamma)$ (@eq:ptb-accum), so the *same* sideband subtraction used for
 the yields (@sec:subtraction) is applied to them:
