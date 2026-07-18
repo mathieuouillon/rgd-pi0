@@ -218,11 +218,11 @@ def main(argv: list[str] | None = None) -> int:
         if good.any():
             ax.hist2d(xd[good], yd[good], bins=(140, 140),
                       range=[(xe[0], xhi), (ye[0], ye[-1])],
-                      cmap="Blues", cmin=1, norm=LogNorm())
+                      cmap="viridis", cmin=1, norm=LogNorm())
         for x in xe:
-            ax.axvline(x, color="0.25", lw=0.6)
+            ax.axvline(x, color="white", lw=0.7)
         for y in ye:
-            ax.axhline(y, color="0.25", lw=0.6)
+            ax.axhline(y, color="white", lw=0.7)
         ax.set(title=title, xlabel=xlabel, ylabel=ylabel,
                xlim=(xe[0], xhi), ylim=(ye[0], ye[-1]))
 
