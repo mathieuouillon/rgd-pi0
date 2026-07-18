@@ -100,14 +100,6 @@ $1.5$ MeV per bin.
   is a small effect, but it is a real omission and it is trivially fixable.
 ]
 
-#warning-box(title: "Constants that look authoritative but are not")[
-  The C++ defines `SIDEBAND_LOW/HIGH` $= 0.19 \/ 0.24$ GeV and
-  `FIT_RANGE_LOW/HIGH` $= 0.10 \/ 0.16$ GeV. These appear in a log line and
-  are *never applied to data*. The values that actually run are the Python
-  ones: sideband $(0.17, 0.28)$, fit range $[0.08, 0.20]$. Do not quote the
-  C++ constants as the analysis values --- they disagree with what is used.
-]
-
 == Cross-checks, implemented and not <sec:background-crosschecks>
 
 A standalone diagnostic program applies five quantitative tests to the
@@ -145,18 +137,4 @@ subtraction on the LD#sub[2] sample:
   rejected, and no systematic band is derived from them. The machinery to
   turn "the subtraction fails here" into an uncertainty exists and is
   unused.
-]
-
-#warning-box(title: "The rotated / swapped-background check does not exist")[
-  Earlier drafts of this analysis describe a *rotated-background* or
-  *swapped-photon* cross-check, in which one photon's azimuth is rotated by
-  $180degree$ to destroy the decay correlation while preserving
-  single-photon kinematics.
-
-  *It is not implemented.* The two code branches that would consume it gate
-  on a `mgg_swapped_all` histogram which is booked *nowhere* in the
-  framework; both branches unconditionally print "Skipping". Any statement
-  that the background was cross-checked with a rotated or swapped method
-  would be false. Event mixing is the *only* background estimate in this
-  analysis.
 ]

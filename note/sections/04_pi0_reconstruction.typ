@@ -63,31 +63,26 @@ Candidates are built by *greedy exclusive pairing*:
   or the joint likelihood, could differ.],
 ) <fig:pairing>
 
-#warning-box(title: "The mass window is ±200 MeV, not ±30 MeV")[
-  The selection is $|m_(gamma gamma) - 0.1349768| < Delta m$ with
-  $Delta m$ = `pi0_mass_window`. The C++ struct default is $0.03$ GeV and
-  its comment reads _"±30 MeV around 135 MeV"_ --- but *every shipped
-  configuration overrides it to $0.2$* GeV.
-
-  Since $m_(gamma gamma) >= 0$ always, $|m - 0.135| < 0.2$ reduces to
+#warning-box(title: "The ±200 MeV window is a pairing cut, not a mass selection")[
+  The pairing cut is $|m_(gamma gamma) - 0.1349768| < Delta m$ with
+  $Delta m$ = `pairing.mass_window_gev` $= 0.2$ GeV --- *deliberately wide*.
+  Since $m_(gamma gamma) >= 0$ always, it reduces to
 
   $ m_(gamma gamma) < 0.335 "GeV" $
 
-  with *no lower bound at all*. The "$pi^0$ candidate" collection is
-  therefore not a mass-selected sample in any meaningful sense: essentially
-  every $gamma gamma$ pair below $335$ MeV enters it.
+  with *no lower bound at all*: essentially every $gamma gamma$ pair below
+  $335$ MeV enters the "$pi^0$ candidate" collection, so it is *not a
+  mass-selected sample* in any meaningful sense.
 
-  This is *by design, not by accident* --- the signal is extracted offline
-  by fitting and subtracting the $m_(gamma gamma)$ spectrum
-  (@sec:background), which requires the sidebands to be present. But it
-  means three things that must be stated plainly:
+  This is *by design, not by accident* --- the signal is extracted offline by
+  fitting and subtracting the $m_(gamma gamma)$ spectrum (@sec:background),
+  which requires the sidebands to be present; narrowing the window would
+  destroy the background estimate. Two consequences must be stated plainly:
 
-  - any documentation (including in-code docstrings) claiming a
-    $plus.minus 30$ MeV $pi^0$ selection is *wrong*;
-  - the $p_T$-broadening accumulators, which are filled from this
-    collection *without* any offline subtraction, are computed over a
-    largely combinatorial sample --- see @sec:ptb-caveat;
-  - the greedy pairing's "closest to $m_(pi^0)$" ordering is doing more
+  - the $p_T$-broadening accumulators, which are filled from this collection
+    *without* any offline subtraction, are computed over a largely
+    combinatorial sample --- see @sec:ptb-caveat;
+  - the greedy "closest to $m_(pi^0)$" ordering (@fig:pairing) is doing more
     work than the window is, since the window barely excludes anything.
 ]
 
