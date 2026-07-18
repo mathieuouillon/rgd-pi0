@@ -3,7 +3,7 @@
 = Combinatorial background <sec:background>
 
 Because the $pi^0$ candidate collection is effectively unselected in mass
-(@sec:pairing), the $m_(gamma gamma)$ spectrum in every kinematic leaf
+(@sec:pairing), the $m_(gamma gamma)$ spectrum in every kinematic bin
 contains a $pi^0$ peak on a large combinatorial background of uncorrelated
 photon pairs. Estimating and removing that background is the central
 technical problem of the multiplicity measurement.
@@ -51,7 +51,7 @@ ensures the combinatorics are comparable.
 
 The finalisation step logs pool occupancy and *warns for every bin that
 never reached depth $N$* --- a genuine quality-assurance feature, and the
-right place to look for leaves where the background estimate is thin.
+right place to look for bins where the background estimate is thin.
 
 === Two asymmetries in the mixed sample <sec:mixing-asymmetry>
 
@@ -141,7 +141,7 @@ subtraction on the LD#sub[2] sample:
 
 #important-box(title: "These diagnostics are not wired into the measurement")[
   The validation program runs on LD#sub[2] only and produces plots. Its
-  verdicts *do not feed back* into the multiplicity extraction: no leaf is
+  verdicts *do not feed back* into the multiplicity extraction: no bin is
   rejected, and no systematic band is derived from them. The machinery to
   turn "the subtraction fails here" into an uncertainty exists and is
   unused.

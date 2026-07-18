@@ -27,9 +27,9 @@
   ready to circulate.
 ]
 
-The broadening reproduces the superseded production closely; the multiplicity
-ratio shows attenuation in the inverse-variance weighted mean but not the
-median; the @BSA is not yet extracted, as it needs a measured polarization
+The broadening is clean and $A$-ordered; the multiplicity ratio shows
+attenuation in the inverse-variance weighted mean but not the median; the @BSA
+is not yet extracted, as it needs a measured polarization
 (@sec:bsa-polarization).
 
 == Transverse-momentum broadening <sec:results-ptb>
@@ -42,24 +42,22 @@ The cleanest result, and the one that most directly validates the chain.
     align: (left, right, right, right),
     table.header([*Target*], [*$A$*],
                  [*$Delta chevron.l p_T^2 chevron.r$ (GeV#super[2])*],
-                 [*$N_"leaves"$*]),
+                 [*$N_"bins"$*]),
     [C (CxC)], [12.0],  [$0.00160 plus.minus 0.00017$], [197],
     [Cu],      [63.5],  [$0.00277 plus.minus 0.00017$], [197],
     [Sn],      [118.7], [$0.00520 plus.minus 0.00016$], [197],
   ),
   caption: [$Delta chevron.l p_T^2 chevron.r$, inverse-variance weighted over
-  the $197$ surviving 3D $(Q^2, x_B, z)$ leaves per target, statistical errors
+  the $197$ surviving 3D $(Q^2, x_B, z)$ bins per target, statistical errors
   only. Positive, monotonic in $A$, and each more than $4 sigma$ from zero.],
 ) <tab:ptb>
 
-The broadening is positive, grows with $A$, and --- the strongest check
-available --- *reproduces the superseded kd-tree production* it was built to
-replace. That analysis found $0.00168$, $0.00302$, $0.00466$ GeV#super[2] for
-C, Cu, Sn; the values above agree to within $10-15%$, from a *different
-binning* (factorised product grid vs.\ adaptive kd-tree) and *about eight times
-less* data. Two independent implementations agreeing to that level is the best
-evidence the pairing $arrow$ donor-pool $arrow$ sideband-subtraction chain is
-sound.
+The broadening is positive, grows with $A$, and --- an external check --- agrees
+to within $10-15%$ with an earlier, independent analysis of the same @RGD data
+($0.00168$, $0.00302$, $0.00466$ GeV#super[2] for C, Cu, Sn). Two independent
+implementations landing on the same values, from a different binning and
+different statistics, is strong evidence the pairing $arrow$ donor-pool
+$arrow$ sideband-subtraction chain is sound.
 
 #subfig2(
   (
@@ -71,7 +69,7 @@ sound.
       <fig:ptb-vs-A-new>),
   ),
   [Transverse-momentum broadening (diagnostic). Points are inverse-variance
-  weighted over the 3D leaves; the $z$ axis uses the sideband-subtracted
+  weighted over the 3D bins; the $z$ axis uses the sideband-subtracted
   $chevron.l z chevron.r$. The right-panel line is @eq:A-scaling.],
   <fig:ptb-new>,
 )
@@ -80,9 +78,8 @@ A power-law fit of the weighted values against $A$ gives
 
 $ Delta chevron.l p_T^2 chevron.r prop A^(0.475) , $ <eq:A-scaling>
 
-again close to the superseded production's $A^(0.426)$ and, as there, *above*
-the $A^(1\/3)$ of @eq:A13 expected if $hat(q)$ is a fixed property of the
-medium.
+*above* the $A^(1\/3)$ of @eq:A13 expected if $hat(q)$ is a fixed property of
+the medium, and consistent with the earlier analysis's $A^(0.43)$.
 
 #warning-box(title: "Do not over-interpret the exponent")[
   @eq:A-scaling is a three-point fit on statistical errors that are
@@ -90,9 +87,8 @@ medium.
   reference and that correlation is not modelled (@sec:ra-uncertainties). The
   $p_T^2$ moments are accumulated over a background-dominated sample
   (@sec:ptb-caveat), which pulls $Delta chevron.l p_T^2 chevron.r$ toward zero
-  by a factor that need not be the same for every target. That the exponent
-  survives from the old analysis to this one is encouraging; it is not a
-  measurement.
+  by a factor that need not be the same for every target. That two independent
+  analyses land on the same exponent is encouraging; it is not a measurement.
 ]
 
 == Multiplicity ratio <sec:results-ra>
@@ -118,9 +114,9 @@ medium.
       [$0.836 plus.minus 0.002$],
   ),
   caption: [$R_A$ vs the sideband-subtracted $chevron.l z chevron.r$,
-  inverse-variance weighted over the $approx 810$ surviving 4D leaves per
+  inverse-variance weighted over the $approx 810$ surviving 4D bins per
   target, statistical errors only. The bottom row is the average over all
-  leaves. The top-bin $chevron.l z chevron.r = 0.53$ is the *true mean* of the
+  bins. The top-bin $chevron.l z chevron.r = 0.53$ is the *true mean* of the
   wide top $z$ box $[0.37, 1.0]$, not its midpoint (@sec:binning-caveat).],
 ) <tab:R-vs-z>
 
@@ -147,17 +143,17 @@ attenuation, with the qualitative shape expected of nuclear hadronization:
 
 #warning-box(title: "Weighted mean and median disagree — read before quoting R_A")[
   The attenuation above is in the *inverse-variance weighted* mean. The
-  *median* $R$ over the same leaves is $0.99$ (C), $0.95$ (Cu), $0.97$ (Sn)
+  *median* $R$ over the same bins is $0.99$ (C), $0.95$ (Cu), $0.97$ (Sn)
   --- consistent with unity. The two disagree because the suppression lives in
-  the high-statistics leaves that dominate the weighted mean, while the many
-  thin, noisy leaves scatter symmetrically about one and dominate the median.
+  the high-statistics bins that dominate the weighted mean, while the many
+  thin, noisy bins scatter symmetrically about one and dominate the median.
   With this note's own caution about weighted averages in mind (the @BSA
   section makes the same point), the $R_A$ signal is *suggestive, not
   established*: the ordering above C is not resolved ($R_"Cu" approx R_"Sn"$),
   and the whole picture rests on error weights from a truncated,
   background-subtracted, fallback-photon sample. More statistics --- and a $z$
   binning that resolves the top box rather than folding $z in [0.37, 1.0]$ into
-  one leaf --- are the way to settle it.
+  one bin --- are the way to settle it.
 ]
 
 == Beam-spin asymmetry <sec:results-bsa>

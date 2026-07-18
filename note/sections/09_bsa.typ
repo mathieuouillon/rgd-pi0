@@ -5,7 +5,7 @@
 == Definition <sec:bsa-definition>
 
 With a longitudinally polarised beam on an unpolarised target, the
-helicity asymmetry in a given $(phi_h, "leaf")$ bin is
+helicity asymmetry in a given $(phi_h, "bin")$ bin is
 
 $ A_"LU" (phi_h) = 1/P dot (N^+ - N^-) / (N^+ + N^-) , $ <eq:alu>
 
@@ -52,7 +52,7 @@ in `PI0::event`). Events with `helicity == 0` (undefined) are dropped.
 
 == Fit model <sec:bsa-fit>
 
-In each leaf the asymmetry is binned in 12 equal $phi_h$ bins over
+In each bin the asymmetry is binned in 12 equal $phi_h$ bins over
 $[-180degree, 180degree]$ (matching the C++ histogram exactly) and fitted
 with a *single-parameter* model:
 
@@ -69,7 +69,7 @@ $"ndf" = 11$.
     (1 + A_"LU"^(cos phi_h) cos phi_h + A_"LU"^(cos 2 phi_h) cos 2 phi_h) , $
 
   and an earlier iteration of this analysis fitted it. It was *deliberately
-  abandoned*: at these per-leaf statistics the denominator develops pole
+  abandoned*: at these per-bin statistics the denominator develops pole
   pathologies and, in the author's words recorded in the source, the fit
   landscape becomes meaningless. The unpolarised $cos phi_h$ and
   $cos 2 phi_h$ moments properly belong to $A_"UU"$ and would have to be
@@ -87,7 +87,7 @@ An unbinned maximum-likelihood alternative is documented in
 == Signal extraction — there is none <sec:bsa-signal>
 
 #warning-box(title: "The BSA applies no background subtraction")[
-  The per-$(phi_h, "leaf")$ yields $N^plus.minus$ are *raw counts* inside a
+  The per-$(phi_h, "bin")$ yields $N^plus.minus$ are *raw counts* inside a
   fixed window $0.110 < m_(gamma gamma) < 0.160$ GeV
   ($135 plus.minus 25$ MeV). There is no mass fit and no sideband
   subtraction --- unlike the multiplicity analysis, which does both.
@@ -104,17 +104,19 @@ An unbinned maximum-likelihood alternative is documented in
   The machinery to fix this already exists and is unused: the same- and
   mixed-event $m_(gamma gamma)$ histograms are booked and filled in the
   same C++ pass, binned on the same tree. The signal fraction $S\/(S+B)$
-  could be read off per leaf from the fits the multiplicity analysis
+  could be read off per bin from the fits the multiplicity analysis
   already performs.
 ]
 
-Quality gates: at least $200$ events per leaf, at least $5$ per $phi_h$
-bin, at least $6$ surviving $phi_h$ bins, and a converged fit. Of $250$
-leaves, $237$ survive.
+Quality gates: at least $200$ events per bin, at least $5$ per $phi_h$
+bin, at least $6$ surviving $phi_h$ bins, and a converged fit. Stage B writes
+the sparse `bsa` tree on the 4D grid; the asymmetry itself is not extracted in
+the diagnostic production of @sec:results, because it has no measured
+polarization (below).
 
 #wide-figure(
   "../figures/phi_h_acceptance.pdf",
-  [Raw $phi_h$ yield $N^+ + N^-$ for a representative leaf --- the honest
+  [Raw $phi_h$ yield $N^+ + N^-$ for a representative bin --- the honest
   acceptance diagnostic. The shape is *not* physics: it is the CLAS12
   azimuthal acceptance, with the sector structure and the gaps between
   sectors plainly visible. This figure is the argument of
@@ -129,28 +131,18 @@ leaves, $237$ survive.
 
 == Beam polarization <sec:bsa-polarization>
 
-#warning-box(title: "P = 0.85 is a placeholder")[
-  The polarization enters as a single constant:
+#warning-box(title: "A_LU has no polarization, by design")[
+  `pi0.bsa` *refuses to run* without a beam polarization: it is mandatory as
+  `--polarization P` or `config/cuts.json` `/bsa/polarization/value`, and there
+  is deliberately no default --- the old code's self-declared $P = 0.85$ was
+  removed precisely because a placeholder that silently scales every $A_"LU"$
+  is worse than a hard stop. Since $A_"LU" prop 1\/P$, the polarization is a
+  fully-correlated scale on every asymmetry, and its uncertainty
+  ($sigma_A^"pol" = A dot sigma_P \/ P$) is propagated once $P plus.minus
+  sigma_P$ is supplied.
 
-  #align(center)[
-    #text(size: 9.5pt, font: ("JetBrains Mono", "Menlo"))[
-      `# Replace the placeholder with the measured value for the run period.` \
-      `BEAM_POLARIZATION: float = 0.85`
-    ]
-  ]
-
-  This is *self-declared as a placeholder in the source*, not an @RGD
-  Møller measurement. Since $A_"LU" prop 1\/P$, every @BSA number in this
-  note scales by $0.85 \/ P_"true"$ and is *provisional*. Obtaining the
-  measured Møller polarization, per run period, is the single blocking item
-  for this observable.
-
-  Compounding it: `BEAM_POLARIZATION_ERR = 0.03` is defined immediately
-  below and *never imported anywhere in the repository*. The resulting
-  $3.5%$ fully-correlated scale uncertainty is therefore absent from every
-  quoted $A$ and from the result file. It is one line to add:
-  $sigma_A^"pol" = A dot sigma_P \/ P$. In fairness it is currently
-  negligible --- the per-leaf statistical errors are $approx 30%$ of $A$
-  --- but it must be included before any averaged or $A$-dependence result
-  is quoted.
+  Obtaining the measured @RGD Møller polarization, per run period, and
+  recording it in `config/cuts.json` is the single blocking item for this
+  observable. Until then the `bsa` tree is written and waiting but $A_"LU"$ is
+  not extracted (@sec:results-bsa).
 ]

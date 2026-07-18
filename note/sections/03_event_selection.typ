@@ -48,23 +48,14 @@ $"pid" = 11$, $"status" < 0$, $2000 <= |"status"| < 4000$ (i.e.\ in the
   @SF cut is the only $e\/pi$ separation.],
 ) <tab:electron-cuts>
 
-#warning-box(title: "The momentum cutflow label is wrong")[
-  The cutflow row is printed as `"Momentum > 0.8 GeV"`, but the applied cut
-  is `p > MIN_ELECTRON_MOMENTUM` with
-  `MIN_ELECTRON_MOMENTUM = 2.0` GeV. The label is a stale string, repeated
-  in the electron-analysis algorithm. *The effective cut is 2.0 GeV.* Do
-  not quote the label --- and note that any cutflow table copied from the
-  log inherits the error.
-]
-
 #wide-figure(
   "../figures/sel_electron_cutflow.pdf",
   [Where trigger electrons are lost, in the order the cuts run
   (@tab:electron-cuts), with short-circuit evaluation --- so each bar counts
   only the candidates a cut is the *first* to reject. The momentum cut
-  dominates, and it is drawn at its true $2.0$ GeV value, not the stale
-  $0.8$ GeV log label. The @PCAL fiducial removes almost nothing at the loose
-  $9$ cm level; the sampling-fraction and @DC edge cuts trim the tails.],
+  dominates at its $2.0$ GeV threshold. The @PCAL fiducial removes almost
+  nothing at the loose $9$ cm level; the sampling-fraction and @DC edge cuts
+  trim the tails.],
   <fig:sel-cutflow>,
   width: 82%,
 )
@@ -196,22 +187,6 @@ explicitly.
   reached. There is no $x_B$ cut.],
 ) <tab:dis-cuts>
 
-#note-box(title: "`dis_region` is dead configuration")[
-  Both $pi^0$ binaries construct the @DIS algorithm with
-  `dis_region = standard_dis_region()`, which would imply
-  $Q^2 in [1, 20]$ and $W in [2, 25]$. *That field is never read.* The cut
-  code consults only the flat `q2_min/q2_max`, `w_min/w_max`, `y_min/y_max`
-  members, which the configuration file sets to $1\/100$, $2\/100$,
-  $0\/0.85$.
-
-  The distinction has no physics consequence here --- none of $20$, $25$,
-  $100$ is reachable at this beam energy, so all four candidate bounds
-  select the same events. It matters only for correctness of the record: a
-  note quoting "$Q^2 < 20$, $W < 25$" would be describing a cut that does
-  not run. The same is true of a handful of other declared-but-unread
-  configuration keys, collected in @sec:appendix-dead-config.
-]
-
 #subfig2(
   (
     ("../figures/sel_dis_phase_space.pdf", [$Q^2$ versus $x_B$, with the three cuts drawn as the boundaries they are.]),
@@ -220,8 +195,8 @@ explicitly.
   [The @DIS acceptance of the accepted sample. *Left:* the $W = 2$ GeV and
   $y = 0.85$ cuts are curves in the $(x_B, Q^2)$ plane, not axis limits, and
   the events fill exactly the wedge between them and $Q^2 > 1$; the strong
-  $Q^2$--$x_B$ correlation is why a rectangular product grid is mostly empty
-  and an adaptive binning was chosen (@sec:binning). *Right:* the accepted
+  $Q^2$--$x_B$ correlation is why the factorized grid's corner cells are left
+  empty by construction (@sec:binning). *Right:* the accepted
   electrons sit above $p > 2$ GeV along the usual @DIS $p$--$theta$ band.],
   <fig:sel-dis>,
 )

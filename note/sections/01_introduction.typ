@@ -207,12 +207,12 @@ the most acceptance-robust of the three.
   ready to be published. Several observables carry unresolved issues that
   are stated in place rather than deferred to a footnote:
 
-  - the beam polarization is a *placeholder value*, so every @BSA number is
-    provisional (@sec:bsa-polarization);
-  - the reported kinematic position of the widest bins is *not* where the
-    data sits, which affects how @tab:R-vs-z must be read
-    (@sec:binning-caveat). This is now fixed in code, but the results
-    predate the fix and still need the re-run (@sec:binning-caveat-fix);
+  - the beam-spin asymmetry is not yet extracted: `pi0.bsa` requires a
+    measured beam polarization and there is deliberately no placeholder
+    (@sec:bsa-polarization);
+  - the widest bins span a large kinematic range, so they are reported at
+    their sideband-subtracted mean rather than their box midpoint, which the
+    extraction does by construction (@sec:binning-caveat);
   - the targets were taken in *separate runs*, so the run-to-run systematic
     does not cancel in the ratio and has not been measured
     (@sec:ratio-cancellation);
@@ -234,10 +234,9 @@ energy loss from pre-hadron absorption, because that separation lives in the
 $nu$, and with $nu$ at fixed $z$. Holding one fixed while scanning the other
 demands both statistics and kinematic granularity.
 
-That is what this dataset offers. The statistics ($15.7 times 10^6$ $pi^0$
-on LD#sub[2] alone, @tab:statistics) support a genuinely four-dimensional
-binning in $(Q^2, x_B, z, p_T^2)$ at $1-2%$ statistical precision per bin
-(@sec:results), on three nuclei spanning an order of magnitude in $A$, at a
+That is what this dataset offers. The @RGD SIDIS train supports a genuinely
+four-dimensional binning in $(Q^2, x_B, z, p_T^2)$ (@sec:binning) on three
+nuclei spanning an order of magnitude in $A$, at a
 $nu$ that sits where the two mechanisms compete rather than where one of
 them trivially wins (@sec:why-kinematics). The $pi^0$ channel adds a further
 handle: its systematics are almost disjoint from the charged-pion channels

@@ -6,7 +6,7 @@
 
 #warning-box(title: "No physics correction is applied anywhere in the chain")[
   This is the most important statement in the note, and it is easy to miss
-  because it is a statement about absence. Both codebases were searched
+  because it is a statement about absence. The codebase was searched
   exhaustively for acceptance, bin migration, radiative, contamination,
   charge normalisation, dead time, dilution, unfolding and efficiency
   corrections. *Every hit is a false positive* --- a histogram name, an
@@ -60,7 +60,7 @@ apart. Four independent ways the cancellation fails are known to exist:
   (@sec:photon-id), so its response is occupancy-dependent *by
   construction*. This one would survive even a simultaneous exposure.
 
-/ Within-leaf kinematics: a kd-tree leaf is a finite box, and the nuclear
+/ Within-bin kinematics: a grid bin is a finite box, and the nuclear
   targets populate it differently. Any correction varying across the box
   therefore does not cancel exactly.
 
@@ -96,7 +96,7 @@ Until that is done, the size of the run-to-run systematic on every number in
       ratioing the six LD#sub[2] blocks of @tab:run-blocks against each
       other. Cancels exactly for Cu-vs-Sn only.],
     [Background subtraction], [not evaluated],
-      [The no-subtraction variant already exists for every leaf
+      [The no-subtraction variant already exists for every bin
       (@sec:no-subtraction); differencing it gives a bound *today*.],
     [Sideband definition], [not evaluated],
       [Vary $(0.17, 0.28)$; cheap.],
@@ -128,9 +128,9 @@ Until that is done, the size of the run-to-run systematic on every number in
 ) <tab:systematics>
 
 #important-box(title: "The statistical precision is misleading")[
-  The median statistical uncertainty on $R_A$ is $1.80%$, reaching
-  $plus.minus 0.001$ in $z$-binned averages (@sec:results). *These errors
-  are not the uncertainty on the measurement.* They are the uncertainty on
+  The statistical uncertainty on $R_A$ is at the percent level per bin, and
+  tighter still in $z$-binned averages (@sec:results). *These errors are not
+  the uncertainty on the measurement.* They are the uncertainty on
   the measurement *given* that every correction in @tab:systematics is
   exactly zero and every cancellation in @sec:ratio-cancellation is
   perfect.
@@ -153,19 +153,16 @@ Ordered by (impact $times$ ease), the cheapest first:
 + *Propagate the polarization uncertainty* and obtain the measured Møller
   value. One line and one number; unblocks the @BSA entirely.
 + *Difference the subtracted and no-subtraction variants* into a background
-  systematic. Both already exist for all $1450$ leaves.
-+ *Re-run with the count-weighted abscissae* now emitted by the C++
-  (@sec:binning-caveat). The code is in place; this needs only the farm
-  pass. It plausibly changes the physics conclusion about the strength of
-  the attenuation.
+  systematic. Both already exist for every bin.
++ *Run the full-luminosity production* --- remove the diagnostic
+  $2 times 10^6$-event/file cap so the yields are complete
+  (@sec:statistics).
 + *Vary the sideband and the integration window.* Pure re-running.
 + *Add a dilution factor to the @BSA* from the $m_(gamma gamma)$ fits the
   multiplicity analysis already performs.
-+ *Wire the mixing diagnostics* (@tab:mixing-validation) into a per-leaf
++ *Wire the mixing diagnostics* (@tab:mixing-validation) into a per-bin
   quality mask.
 + *Run the inbending data* as a detector-systematic cross-check.
-+ *Resolve the $p_T$-broadening mass window* (@sec:ptb-caveat) --- ideally
-  by accumulating the moments per $m_(gamma gamma)$ bin.
 + *Commission an @RGD photon-ID model* and re-skim.
 + *Build the @MC chain* for acceptance, migration and radiative
   corrections.

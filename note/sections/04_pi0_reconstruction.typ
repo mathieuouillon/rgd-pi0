@@ -19,8 +19,8 @@ nominal mass is $m_(pi^0) = 0.1349768$ GeV.
   Photon four-momenta pass from `REC::Particle` to the invariant mass
   untouched.
 
-  This is visible in the data. The fitted peak position, median over all
-  $1450$ leaves, is
+  This is visible in the data. The fitted peak position, median over the
+  populated bins of a representative run, is
 
   #align(center)[
     #text(size: 9.5pt)[

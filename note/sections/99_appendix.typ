@@ -67,106 +67,40 @@ For completeness; unused here, since only outbending data is analysed.
   (more negative) foil. Sn is the $-2.8$ peak, Cu the $-7.8$ peak.],
 ) <tab:vz-inbending>
 
-= Skim bank definitions <sec:appendix-banks>
+= Slim schema <sec:appendix-banks>
 
-Both banks are generated from `data/bankdefs/hipo4/pi0skim.json`, group
-`30000`.
+Stage A writes a single ROOT `TTree` named `events`, one row per event, read
+downstream by `uproot` without ROOT.
 
 #figure(
   table(
     columns: (auto, auto, 1fr),
     align: (left, center, left),
-    table.header([*Field*], [*Type*], [*Meaning*]),
-    table.cell(colspan: 3)[*`PI0::event`* --- item 1, one row per event],
-    [`run`], [`int32`], [Run number, from `RUN::config`],
-    [`event`], [`int64`], [Event number],
-    [`helicity`], [`int32`], [Beam helicity, HWP-corrected, $plus.minus 1$],
-    [`Q2`], [`float`], [@DIS $Q^2$ (GeV#super[2])],
-    [`xB`], [`float`], [Bjorken $x$],
-    [`nu`], [`float`], [Energy transfer $nu$ (GeV)],
-    [`W`], [`float`], [Invariant mass $W$ (GeV)],
-    [`y`], [`float`], [Inelasticity],
-    [`ex`, `ey`, `ez`], [`float`], [Trigger electron $p_x, p_y, p_z$ (GeV)],
-    [`eE`], [`float`], [Trigger electron $E$ (GeV)],
-    table.cell(colspan: 3)[*`PI0::photons`* --- item 2, one row per selected
-      photon],
-    [`px`, `py`, `pz`], [`float`], [Photon momentum (GeV)],
-    [`E`], [`float`], [Photon energy (GeV), $= |arrow(p)|$],
+    table.header([*Branch*], [*Type*], [*Meaning*]),
+    table.cell(colspan: 3)[*Per event* --- scalar branches],
+    [`run`], [`int`], [Run number, from `RUN::config`],
+    [`helicity`], [`int`], [Beam helicity, HWP-corrected, $plus.minus 1$
+      ($0$ = undefined)],
+    [`q2`, `xb`, `nu`, `w`, `y`], [`double`], [@DIS kinematics
+      (@eq:Q2 -- @eq:xB)],
+    [`ex`, `ey`, `ez`, `ee`], [`double`], [Trigger electron $p_x, p_y, p_z, E$
+      (GeV)],
+    table.cell(colspan: 3)[*Per photon* --- variable-length array branches],
+    [`gpx`, `gpy`, `gpz`], [`double[]`], [Selected photon momenta (GeV)],
+    [`g_e_gamma_deg`], [`double[]`], [Each photon's angle to the scattered
+      electron (deg)],
   ),
-  caption: [Slim skim contents, $approx 87$ bytes per event. The photon bank
-  carries *no* PID, status, $beta$ or vertex column --- the AI, fiducial
-  and $beta$ selections are already applied and cannot be varied
-  downstream (@sec:skim-cost). The skim keeps events with $>= 1$ photon
-  even though $pi^0$ reconstruction needs $>= 2$, deliberately: single-photon
-  events still feed the event-mixing pool.],
+  caption: [The slim `events` tree. It carries *no* per-photon PID, status,
+  $beta$ or vertex --- the @GBT, fiducial and $beta$ selections are already
+  applied and cannot be varied downstream (@sec:skim-cost). The skim keeps
+  events with $>= 1$ photon even though $pi^0$ reconstruction needs $>= 2$,
+  deliberately: single-photon events still feed the event-mixing pool. The
+  file also carries a `provenance` directory and one `provenance_stageA` block
+  stamping the config hash, target, run and @GBT model (@sec:provenance-gaps).],
 ) <tab:banks>
 
-Kinematics are stored as `float` and re-widened to `double` downstream, so
-the slim and full chains differ at the $approx 10^(-7)$ relative level ---
-irrelevant physically, relevant only if the two are diffed bit-for-bit.
-
-= Declared-but-unread configuration <sec:appendix-dead-config>
-
-Keys and fields that appear authoritative but have no effect. None changes
-any physics today --- the values coincide with the hard-coded constants ---
-but each is a trap for anyone attempting a systematic variation by editing
-the configuration.
-
-#figure(
-  table(
-    columns: (auto, 1fr),
-    align: (left, left),
-    table.header([*Item*], [*Status*]),
-    [`DISSelectionConfig::dis_region`],
-      [Set to `standard_dis_region()` by both binaries; *never read*. The
-       flat `q2_min/max` etc.\ are what apply (@sec:dis).],
-    [`[Pi0Reconstruction] min_photon_energy`],
-      [`select_photons()` is never called from `process()`; the effective
-       floor is the $0.2$ GeV inside the AI purity filter.],
-    [`[PhotonSelection] min_photon_energy`],
-      [Unused when `use_ai = true` (the production setting); the AI branch
-       uses a hard-coded $0.2$ GeV. Same value, different source.],
-    [`pcal_lv_min`, `pcal_lw_min`, `dc_r{1,2,3}_edge_min`],
-      [Declared on the electron algorithm and set in six TOMLs; *never
-       read*. Cuts come from `ElectronCutsService` constants
-       ($9.0\/9.0$; $1.680\/2.0\/8.750$).],
-    [`[Pi0Analysis] W_edges`, `nu_edges`],
-      [Declared and registered but never read --- the mixing pool key
-       dropped $W$ and $nu$ (@sec:mixing). The configuration comment still
-       describes a five-dimensional pool key. Stale.],
-    [`[IO]` section],
-      [All five keys read by nothing; the framework prints a
-       "does not match any registered algorithm" warning on every run. The
-       ifarm/XRootD tuning advice in the comments is not functional.],
-    [`[analysis] beam_energy`],
-      [Does not reach the @DIS kinematics, which use the hard-coded
-       `BeamConfig` default. `[Pi0Analysis] beam_energy` *does* set the
-       $gamma^*$ frame. Three independent beam energies that agree only
-       because all default to $10.53$.],
-    [`enable_*_cut = false`],
-      [Does *not* skip the cut --- it makes the pass flag `false` and
-       filters *every* event. Counter-intuitive; do not use it to disable a
-       cut.],
-    [`phi_to_sector`],
-      [*Fixed.* It was declared to take radians while the call site passed
-       `Particle::phi()`, which returns *degrees*; the $[0,5]$ clamp then
-       saturated and collapsed six sectors to $tilde 2$. It now takes
-       degrees, matching `Particle::phi()`, and wraps with `fmod` so any
-       finite input is handled. The fix also corrected a second, independent
-       error: truncation toward zero had put the wedges at $[0,60)$ rather
-       than centring them on $0, 60, ... 300$ as
-       `VzCorrector::kSectorPhiCenter` requires, making sector 0 twice as
-       wide as its neighbours. Both are covered by unit tests. This only
-       ever affected the *enhanced* mixing-pool cross-check --- not the
-       baseline pool, and no physics observable in this note.],
-    [Cutflow labels],
-      [`"Momentum > 0.8 GeV"` where the cut is $2.0$ GeV;
-       `"DC Chi2/NDF"` where the cut is a DC *edge* distance. Do not
-       transcribe a cutflow table from the logs.],
-  ),
-  caption: [Configuration and code items that do not do what they appear to
-  do.],
-) <tab:dead-config>
+Stage A is single-threaded and streaming, and its output is byte-identical
+regardless of the `--threads` value.
 
 = Unbinned maximum-likelihood method <sec:appendix-mlm>
 
@@ -213,39 +147,40 @@ $A_"LU"$ (@sec:bsa-definition).
   all, or fixed externally.
 ]
 
-= Result-file schemas <sec:appendix-schemas>
+= Output schemas <sec:appendix-schemas>
+
+Stage B writes four flat trees, all decodable by their index columns without
+ROOT.
 
 #figure(
   table(
     columns: (auto, 1fr),
     align: (left, left),
-    table.header([*File*], [*Columns*]),
-    [`pi0_multiplicity_ratio_<T>.csv` \ (1450 rows)],
-      [`leaf`; `q2, xb, z, pt2` (*geometric box midpoints* ---
-       @sec:binning-caveat); `y_LD2, ye_LD2`; `y_<T>, ye_<T>`;
-       `N_DIS_LD2, N_DIS_<T>`; `R, R_err`;
-       `mu_LD2, sigma_LD2, chi2ndf_LD2`; `mu_<T>, sigma_<T>, chi2ndf_<T>`],
-    [`pi0_pT_broadening.csv` \ (320 rows)],
-      [`leaf`; `q2_center, xb_center, z_center`; `mean_pT2_<T>, err_<T>`;
-       `dpT2_<T>, dpT2_err_<T>`],
-    [`pi0_BSA.csv` \ (237 rows)],
-      [`leaf`; `{Q2,xB,z,pT2}_{lo,hi}` (kd-tree box);
-       `q2_mean, xb_mean, pt2_mean, z_mean` (*count-weighted* --- the
-       pattern the other files should adopt); then per target
-       `A_<T>, A_err_<T>, chi2_ndof_<T>, ndof_<T>, n_tot_<T>`],
+    table.header([*Tree*], [*Columns (dense unless noted)*]),
+    [`spectra`],
+      [`bin4d`, `imgg`, `n_same`, `n_mixed`, `sum_q2`, `sum_xb`, `sum_z`,
+       `sum_pt2` --- $n_"4D" times n_"mgg"$ rows],
+    [`ptb3d`],
+      [`bin3d`, `imgg`, `counts`, `sum_pt2`, `sum_pt4` ---
+       $n_"3D" times n_"mgg"$ rows],
+    [`n_dis`], [`cell_a`, `n_dis` --- one row per Grid A cell],
+    [`bsa`],
+      [`bin4d`, `imgg`, `iphi`, `helicity`, `counts` --- *sparse*
+       (zero-count cells omitted); decode via the index columns],
   ),
-  caption: [Current result-file schemas. Note the @BSA file already carries
-  count-weighted kinematic means while the multiplicity file carries box
-  midpoints --- the inconsistency at the heart of @sec:binning-caveat.],
+  caption: [Stage B binned-file schema. The `sum_*` columns are the
+  count-weighted kinematic sums that let every abscissa be reported at its
+  sideband-subtracted mean rather than a box midpoint (@sec:binning-caveat).],
 ) <tab:schemas>
 
-#warning-box(title: "Superseded files on disk")[
-  Older, *broken* result files sit at the top level of `results/` alongside
-  the current ones, distinguishable by a `bin_id` (not `leaf`) column and a
-  `pt` (not `pt2`) column, and by row counts near $800$ rather than $1450$.
-  They are from the product-grid era and are numerically pathological ---
-  $R$ reaching $7 times 10^18$, $R_"err"$ to $2 times 10^35$. *Do not read
-  them.* Only the files inside the per-observable subdirectories are
-  current. Several plots dated before the 16 June CSVs are likewise stale
-  and should be regenerated before use.
-]
+Stage C writes one CSV per observable and target, each with a `#`-commented
+provenance header (config hash, `provenance_hash`, and any blockers) above the
+columns:
+
+/ `ratio_<T>.csv`: `bin4d, i_q2, i_xb, i_z, i_pt2, cell_a`; the
+  sideband-subtracted means `q2_mean, xb_mean, z_mean, pt2_mean`; the yields
+  `Y_A, sY_A, Y_D, sY_D`; `N_DIS_A, N_DIS_D`; and `R, sR`.
+/ `broadening_<T>.csv`: `bin3d, i_q2, i_xb, i_z`; `pt2_A, spt2_A, pt2_D,
+  spt2_D`; `delta, sdelta`.
+/ `bsa_<T>.csv`: per 4D bin, `A, A_err, chi2, ndof, n` --- written once a
+  measured polarization is supplied (@sec:bsa-polarization).

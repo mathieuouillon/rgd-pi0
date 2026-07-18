@@ -4,19 +4,19 @@
 
 == Definition <sec:ra-definition>
 
-Per kd-tree leaf,
+Per 4D bin,
 
 $ R_A = (Y_A \/ N_A^"DIS") / (Y_D \/ N_D^"DIS") , $ <eq:ra>
 
-with $Y$ the background-subtracted $pi^0$ yield in the leaf and $N^"DIS"$
-the inclusive @DIS count in the leaf's $(Q^2, x_B)$ box. LD#sub[2] is
+with $Y$ the background-subtracted $pi^0$ yield in the bin and $N^"DIS"$
+the inclusive @DIS count in the bin's $(Q^2, x_B)$ cell. LD#sub[2] is
 always the denominator; CxC, Cu and Sn are three
-independent numerator files sharing one kd-tree, which is what makes the
-leaf-by-leaf division meaningful.
+independent numerator files sharing one frozen grid, which is what makes the
+bin-by-bin division meaningful.
 
 The @DIS normalisation is integrated over $(Q^2, x_B)$ *only* --- not over
 $z$ or $p_T^2$. This is the physically correct choice, and it is verifiable
-in the output: all $25$ leaves ($5_z times 5_(p_T^2)$) of a given
+in the output: all $25$ bins ($5_z times 5_(p_T^2)$) of a given
 $(Q^2, x_B)$ cell carry an identical $N^"DIS"$.
 
 #note-box(title: "What counts as a DIS event")[
@@ -58,50 +58,22 @@ $A in [0, infinity)$, $mu in [0.10, 0.18]$, $sigma in [0.003, 0.05]$ GeV,
 seeded at $(max S, 0.135, 0.012)$, fitted with `absolute_sigma=True` so the
 errors are not rescaled by $chi^2 \/ "ndf"$.
 
-#important-box(title: "A stale docstring to ignore")[
-  The script's own header claims the yield is
-  $N = A sigma sqrt(2 pi) \/ w_"bin"$ with the error from the full
-  covariance matrix. *That is not what produces $R_A$.* The analytic
-  integral and its covariance-propagated error are implemented, but used
-  *only* in a pedagogical demonstration plot. The published yield is the
-  $plus.minus 3 sigma$ window sum of @fig:yield-procedure.
-]
-
 Two quality gates apply: at least 5 raw same-event entries, and a
-subtracted peak amplitude of at least 1 count. In the actual production
-*all $1450$ leaves survive for all three targets* --- zero rejections. Fit
-quality is good: median $chi^2 \/ "ndf"$ between $1.00$ and $1.05$, with
-fewer than $0.7%$ of leaves above 2.
+subtracted peak amplitude of at least 1 count. In the diagnostic run every
+populated bin survives for all three targets, with a good median
+$chi^2 \/ "ndf"$ near 1.
 
-== Normalisation integration <sec:normalisation>
+== Normalisation <sec:normalisation>
 
-Because $N^"DIS"$ is histogrammed on the *configuration* product grid while
-the yields live on kd-tree leaves (@sec:aux-grids), the denominator must be
-integrated over each leaf's $(Q^2, x_B)$ box. The preferred path reads the
-two-dimensional $N^"DIS"(Q^2, x_B)$ histogram and weights each cell by its
-*separable* overlap fraction $f_(Q^2) times f_(x_B)$, assuming uniform
-density within a cell.
-
-#warning-box(title: "The factorized fallback is not safe")[
-  If the 2D histogram is unavailable the code falls back to
-
-  $ N^"DIS" (Q^2, x_B) approx (N(Q^2) dot N(x_B)) / N_"inc" , $
-
-  i.e.\ it assumes $rho(Q^2, x_B) approx rho(Q^2) rho(x_B)$. *That
-  factorization is badly wrong for @DIS*, where $Q^2$ and $x_B$ are
-  strongly correlated by $Q^2 = 2 M_p nu x_B$ and the acceptance carves a
-  diagonal band out of the plane.
-
-  The script prints which branch it took. *That log line must be checked
-  and recorded*: the 2D histogram is genuinely booked and filled by the
-  C++, so the preferred branch should be taken --- but the note cannot
-  assert which branch produced these numbers without the log.
-
-  A related subtlety: the 2D normalisation histogram has *flow bins*, so
-  events with $x_B < 0.1$ or $x_B > 0.7$ land outside the grid. The in-grid
-  sum is therefore not the total @DIS count, and the leaf integration is
-  only meaningful for leaves inside the product grid's span.
-]
+Because $N^"DIS"$ is counted on Grid A --- the *same* $(Q^2, x_B)$ cells the
+numerator bins share (@sec:aux-grids) --- each 4D bin divides by the $N^"DIS"$
+of its own $(Q^2, x_B)$ cell directly. There is no reweighting between two
+different grids and no separable approximation to fail: the denominator is an
+exact per-cell count, and the diagonal $Q^2$--$x_B$ correlation that would
+defeat a factorised estimate never enters. Events whose $x_B$ falls outside
+Grid A's span belong to no cell and are excluded from numerator and denominator
+alike; Stage B reports how many (`events.off_grid_a`, zero in the diagnostic
+run).
 
 == Uncertainties <sec:ra-uncertainties>
 
@@ -123,10 +95,10 @@ entirely by the yields:
     [$1 \/ N_D^"DIS"$], [$2.50 times 10^(-6)$], [$0.8%$],
     [$1 \/ N_A^"DIS"$], [$4.22 times 10^(-6)$], [$1.3%$],
   ),
-  caption: [Statistical error budget for CxC, medians over
-  the $1450$ leaves. Median $sigma_R \/ R = 1.80%$. The @DIS normalisation
-  terms are negligible --- the measurement is limited by the $pi^0$ yield
-  extraction, which is in turn limited by the background subtraction.],
+  caption: [Statistical error budget for CxC, medians over the populated bins
+  of a representative run. The @DIS normalisation terms are negligible --- the
+  measurement is limited by the $pi^0$ yield extraction, which is in turn
+  limited by the background subtraction.],
 ) <tab:error-budget>
 
 #important-box(title: "Three known omissions in the error model")[
@@ -145,7 +117,7 @@ entirely by the yields:
 
 == The no-subtraction cross-check <sec:no-subtraction>
 
-A second variant is produced for every leaf: a Gaussian-plus-linear fit to
+A second variant is produced for every bin: a Gaussian-plus-linear fit to
 the *raw* same-event spectrum, from which $mu$ and $sigma$ are taken and
 the *raw counts* summed over $plus.minus 3 sigma$.
 
@@ -158,4 +130,4 @@ combinatorial background.
 It is plotted alongside the nominal but *never differenced into a
 systematic band*, and never written to CSV. Turning the nominal-versus-raw
 difference into a background systematic is the most obvious immediate
-improvement available: the two variants already exist for every leaf.
+improvement available: the two variants already exist for every bin.
