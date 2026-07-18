@@ -2,89 +2,39 @@
 
 = Current results <sec:results>
 
-#important-box(title: "How to read this section")[
-  Every number below is *statistical only* and carries the caveats of
-  @sec:systematics --- no acceptance, no bin migration, no radiative
-  correction, no evaluated systematic. The @BSA additionally depends on a
-  placeholder polarization (@sec:bsa-polarization), and the quoted
-  kinematic positions of the widest bins are not where the data sits
-  (@sec:binning-caveat).
+#important-box(title: "First end-to-end run of the rewritten pipeline — diagnostic only")[
+  Every number in this section is the *first* output of the rewritten
+  Stage A $arrow$ `make_grid` $arrow$ Stage B $arrow$ Stage C chain run end to
+  end on data. It is *diagnostic only* --- three independent blockers forbid
+  quoting any of it, and each is stamped into the result files:
 
-  All values were recomputed directly from the result files for this note
-  rather than transcribed, and the fit-quality and error-budget statistics
-  quoted throughout were reproduced independently.
+  - *Photon fallback.* No GBT model covers @RGD, so photons were scored by the
+    @RGA inbending model (`gbt.fallback_used = TRUE`). The photon sample is not
+    the one the cuts describe.
+  - *Truncated statistics.* Stage A read only the first $2 times 10^6$ events
+    of each of the $95$ SIDIS-train files, so $N_"DIS"$ --- the normalisation
+    denominator --- is a prefix of each run and every yield carries
+    `--allow-truncated-inputs`.
+  - *No systematics.* Errors are statistical only and correlated through the
+    shared LD#sub[2] reference (@sec:ra-uncertainties); no acceptance, bin
+    migration, radiative or evaluated systematic is applied (@sec:systematics).
 
-  *These are internal, provisional numbers.* They are presented because
-  they are informative about the state of the analysis, not because they
-  are ready to circulate.
+  The sample is $approx 5.5 times 10^6$ @DIS events and $2.5 times 10^6$
+  $pi^0$ candidates over the factorised $8 times 7$ $(Q^2, x_B) times 5 times
+  5$ $(z, p_T^2)$ grid (`provenance_hash 2acf618294a6c3b0`,
+  `cuts.sha256 801ba433…`). It is shown because it exercises the whole chain
+  and is *informative about the state of the analysis*, not because it is
+  ready to circulate.
 ]
 
-== Multiplicity ratio <sec:results-ra>
-
-#figure(
-  table(
-    columns: (auto, auto, auto, auto, auto),
-    align: (left, right, right, right, right),
-    table.header(
-      [*$z$ bin*], [*$N_"leaves"$*], [*$R_"CxC"$*], [*$R_"Cu"$*],
-      [*$R_"Sn"$*],
-    ),
-    [$(0.00, 0.15]$], [330], [$1.0396 plus.minus 0.0014$],
-      [$1.0996 plus.minus 0.0015$], [$1.1545 plus.minus 0.0014$],
-    [$(0.15, 0.25]$], [395], [$1.0145 plus.minus 0.0010$],
-      [$1.0248 plus.minus 0.0010$], [$1.0408 plus.minus 0.0010$],
-    [$(0.25, 0.35]$], [285], [$1.0081 plus.minus 0.0010$],
-      [$0.9955 plus.minus 0.0011$], [$0.9910 plus.minus 0.0010$],
-    [$(0.35, 0.45]$], [115], [$0.9979 plus.minus 0.0015$],
-      [$0.9733 plus.minus 0.0016$], [$0.9609 plus.minus 0.0015$],
-    [$(0.45, 0.55]$], [35], [$0.9908 plus.minus 0.0026$],
-      [$0.9633 plus.minus 0.0028$], [$0.9420 plus.minus 0.0026$],
-    [$(0.55, 0.65]$], [20], [$1.0014 plus.minus 0.0035$],
-      [$0.9816 plus.minus 0.0035$], [$0.9411 plus.minus 0.0032$],
-    [$(0.65, 0.80]$], [270], [$0.9911 plus.minus 0.0009$],
-      [$0.9385 plus.minus 0.0009$], [$0.8973 plus.minus 0.0008$],
-  ),
-  caption: [$R_A$ versus $z$, inverse-variance weighted over kd-tree
-  leaves, statistical errors only. Binning is on the *reported* $z$ column,
-  i.e.\ the geometric box midpoint. *The last row is not a measurement at
-  $z approx 0.7$*: it is the top $z$ box, spanning $z in [0.37, 1.0]$ and
-  dominated by $z approx 0.4-0.5$ (@sec:binning-caveat). The sparse
-  $(0.45, 0.65]$ rows are the sampling of interior boxes near the top-box
-  boundary and should not be over-interpreted.],
-) <tab:R-vs-z>
-
-The qualitative picture is textbook nuclear hadronization, and all three
-signatures come out right:
-
-/ Attenuation grows with $z$: $R$ falls monotonically for Cu and Sn, from
-  above unity at low $z$ to a clear suppression at high $z$.
-/ Attenuation orders with $A$: at every $z$ above $0.25$,
-  $R_"CxC" > R_"Cu" > R_"Sn"$ --- the ordering expected from the growing
-  path length in nuclear matter, and *not* an ordering the analysis was
-  tuned to produce.
-/ Low-$z$ enhancement: $R > 1$ below $z approx 0.25$, growing with $A$
-  (Sn reaches $1.15$), consistent with energy removed from the leading
-  hadron reappearing as additional soft production.
-
-Full ranges: $R_"Cu" in [0.818, 1.352]$, $R_"Sn" in [0.776, 1.511]$,
-$R_"CxC" in [0.897, 1.188]$ over all $1450$ leaves.
-
-#wide-figure(
-  "../figures/R_vs_z_per_Q2xB.pdf",
-  [$R_A$ versus $z$ for one $(Q^2, x_B)$ cell, one of the 58 pages of the
-  full result --- the page count is itself a check on @tab:trees, since
-  $58 times 25 = 1450$. The three targets separate in the expected order at
-  large $z$. *The rightmost point of each curve is the top $z$ box*, plotted
-  at its geometric midpoint rather than at its true
-  $chevron.l z chevron.r$; the visible gap between the fourth and fifth
-  points is the signature of that artefact (@sec:binning-caveat), not a
-  feature of the data.],
-  <fig:R-vs-z>,
-  width: 90%,
-  page: 1,
-)
+The broadening reproduces the superseded production closely; the multiplicity
+ratio shows attenuation in the inverse-variance weighted mean but not the
+median; the @BSA is not yet extracted, as it needs a measured polarization
+(@sec:bsa-polarization).
 
 == Transverse-momentum broadening <sec:results-ptb>
+
+The cleanest result, and the one that most directly validates the chain.
 
 #figure(
   table(
@@ -92,138 +42,129 @@ $R_"CxC" in [0.897, 1.188]$ over all $1450$ leaves.
     align: (left, right, right, right),
     table.header([*Target*], [*$A$*],
                  [*$Delta chevron.l p_T^2 chevron.r$ (GeV#super[2])*],
-                 [*Unweighted mean $plus.minus$ s.d.*]),
-    [CxC], [12.0], [$0.001679 plus.minus 0.000034$],
-      [$0.0052 plus.minus 0.0046$],
-    [Cu], [63.5], [$0.003021 plus.minus 0.000035$],
-      [$0.0101 plus.minus 0.0088$],
-    [Sn], [118.7], [$0.004662 plus.minus 0.000033$],
-      [$0.0147 plus.minus 0.0122$],
+                 [*$N_"leaves"$*]),
+    [C (CxC)], [12.0],  [$0.00160 plus.minus 0.00017$], [197],
+    [Cu],      [63.5],  [$0.00277 plus.minus 0.00017$], [197],
+    [Sn],      [118.7], [$0.00520 plus.minus 0.00016$], [197],
   ),
-  caption: [$Delta chevron.l p_T^2 chevron.r$ over the $320$ leaves of the 3D
-  tree. The broadening is positive and monotonic in $A$, with essentially
-  no negative leaves ($0.31%$ for CxC, none for Cu or Sn).
-  $chevron.l p_T^2 chevron.r_(D)$ has mean $0.128$ GeV#super[2].],
+  caption: [$Delta chevron.l p_T^2 chevron.r$, inverse-variance weighted over
+  the $197$ surviving 3D $(Q^2, x_B, z)$ leaves per target, statistical errors
+  only. Positive, monotonic in $A$, and each more than $4 sigma$ from zero.],
 ) <tab:ptb>
 
-#important-box(title: "Weighted and unweighted means differ by ~3×")[
-  @tab:ptb deliberately quotes both. The inverse-variance weighted mean is
-  dominated by high-statistics, low-$Delta$ leaves; the unweighted mean
-  treats every leaf equally. They differ by a factor $approx 3$, which is not
-  a small effect --- it says the broadening varies strongly across the
-  kinematic range, as it should ($Delta chevron.l p_T^2 chevron.r$ grows with
-  path length and with $z$). *Any quoted single number must state which
-  average it is.* Neither is "the" broadening; the physics is in the
-  differential distribution.
-]
+The broadening is positive, grows with $A$, and --- the strongest check
+available --- *reproduces the superseded kd-tree production* it was built to
+replace. That analysis found $0.00168$, $0.00302$, $0.00466$ GeV#super[2] for
+C, Cu, Sn; the values above agree to within $10-15%$, from a *different
+binning* (factorised product grid vs.\ adaptive kd-tree) and *about eight times
+less* data. Two independent implementations agreeing to that level is the best
+evidence the pairing $arrow$ donor-pool $arrow$ sideband-subtraction chain is
+sound.
 
 #subfig2(
   (
-    ("../figures/pT_broadening_vs_z_per_Q2xB.pdf",
-      [$Delta chevron.l p_T^2 chevron.r$ vs $z$, one $(Q^2, x_B)$ cell],
-      <fig:ptb-vs-z>),
-    ("../figures/pT_broadening_vs_A.pdf",
-      [$chevron.l p_T^2 chevron.r$ vs $A$, one $z$ bin],
-      <fig:ptb-vs-A>),
+    ("../figures/results_dpt2_vs_z.pdf",
+      [$Delta chevron.l p_T^2 chevron.r$ vs $chevron.l z chevron.r$],
+      <fig:ptb-vs-z-new>),
+    ("../figures/results_dpt2_vs_A.pdf",
+      [$Delta chevron.l p_T^2 chevron.r$ vs $A$, with the power-law fit],
+      <fig:ptb-vs-A-new>),
   ),
-  [Transverse-momentum broadening. Left: one of the 64 $(Q^2, x_B)$ pages
-  ($64 times 5 = 320$ leaves, confirming @tab:trees). Right: the
-  $A$-dependence that @eq:A-scaling summarises. The $y$-axis of the left
-  panel is clipped at $0.05$ GeV#super[2], which cuts three Sn and one
-  CxC leaf --- worth widening before circulation.],
-  <fig:ptb>,
+  [Transverse-momentum broadening (diagnostic). Points are inverse-variance
+  weighted over the 3D leaves; the $z$ axis uses the sideband-subtracted
+  $chevron.l z chevron.r$. The right-panel line is @eq:A-scaling.],
+  <fig:ptb-new>,
 )
 
-Fitting the weighted values against $A$ gives
+A power-law fit of the weighted values against $A$ gives
 
-$ Delta chevron.l p_T^2 chevron.r prop A^(0.426) , $ <eq:A-scaling>
+$ Delta chevron.l p_T^2 chevron.r prop A^(0.475) , $ <eq:A-scaling>
 
-to be compared with the $A^(1\/3)$ of @eq:A13, expected if $hat(q)$ is a
-property of the medium and the path length simply tracks the nuclear radius.
-The measured exponent is notably *above* $1\/3$.
-
-Taken at face value that would mean the broadening grows with $A$ *faster*
-than the nucleus does --- so either $hat(q)$ itself rises with $A$ (denser
-matter in heavier nuclei, beyond the constant-density picture behind
-@tab:lengths), or the effective path length grows faster than $R_A$, or the
-light target is losing broadening for a reason the heavy ones are not. It is
-the kind of deviation the measurement exists to find. It is also, at present,
-not established:
+again close to the superseded production's $A^(0.426)$ and, as there, *above*
+the $A^(1\/3)$ of @eq:A13 expected if $hat(q)$ is a fixed property of the
+medium.
 
 #warning-box(title: "Do not over-interpret the exponent")[
-  @eq:A-scaling is a three-point fit using statistical errors that are
-  known to be *underestimated in a correlated way*: the three targets share
-  the LD#sub[2] reference, and that correlation is not modelled
-  (@sec:ra-uncertainties). The exponent is also computed from the weighted
-  mean, which per the box above is only one of two defensible averages ---
-  the unweighted values give a different exponent.
+  @eq:A-scaling is a three-point fit on statistical errors that are
+  *underestimated in a correlated way*: the three targets share the LD#sub[2]
+  reference and that correlation is not modelled (@sec:ra-uncertainties). The
+  $p_T^2$ moments are accumulated over a background-dominated sample
+  (@sec:ptb-caveat), which pulls $Delta chevron.l p_T^2 chevron.r$ toward zero
+  by a factor that need not be the same for every target. That the exponent
+  survives from the old analysis to this one is encouraging; it is not a
+  measurement.
+]
 
-  Layered on top, the $p_T^2$ moments are accumulated over a
-  background-dominated sample (@sec:ptb-caveat), which suppresses
-  $Delta chevron.l p_T^2 chevron.r$ toward zero by a factor that need not be
-  the same for every target. The deviation from $A^(1\/3)$ is *interesting
-  and worth pursuing*, but it is not yet a result.
+== Multiplicity ratio <sec:results-ra>
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto),
+    align: (left, right, right, right),
+    table.header([*$chevron.l z chevron.r$*],
+                 [*$R_"C"$*], [*$R_"Cu"$*], [*$R_"Sn"$*]),
+    [$0.11$],  [$0.940 plus.minus 0.007$], [$1.002 plus.minus 0.008$],
+      [$1.077 plus.minus 0.008$],
+    [$0.17$],  [$0.948 plus.minus 0.006$], [$0.828 plus.minus 0.006$],
+      [$0.969 plus.minus 0.006$],
+    [$0.23$],  [$0.929 plus.minus 0.005$], [$0.744 plus.minus 0.005$],
+      [$0.925 plus.minus 0.005$],
+    [$0.31$],  [$0.916 plus.minus 0.005$], [$0.852 plus.minus 0.005$],
+      [$0.865 plus.minus 0.005$],
+    [$0.53$],  [$0.912 plus.minus 0.004$], [$0.811 plus.minus 0.004$],
+      [$0.674 plus.minus 0.004$],
+    table.hline(),
+    [all $z$], [$0.925 plus.minus 0.002$], [$0.826 plus.minus 0.002$],
+      [$0.836 plus.minus 0.002$],
+  ),
+  caption: [$R_A$ vs the sideband-subtracted $chevron.l z chevron.r$,
+  inverse-variance weighted over the $approx 810$ surviving 4D leaves per
+  target, statistical errors only. The bottom row is the average over all
+  leaves. The top-bin $chevron.l z chevron.r = 0.53$ is the *true mean* of the
+  wide top $z$ box $[0.37, 1.0]$, not its midpoint (@sec:binning-caveat).],
+) <tab:R-vs-z>
+
+Read as an inverse-variance weighted average, the ratio shows genuine
+attenuation, with the qualitative shape expected of nuclear hadronization:
+
+/ Suppression is real: all three overall ratios lie well below unity --- C the
+  least ($0.925$), Cu and Sn near $0.83$.
+/ It grows with $z$ for the heavy target: $R_"Sn"$ falls monotonically from
+  $1.08$ at $chevron.l z chevron.r = 0.11$ to $0.67$ in the top $z$ bin --- the
+  expected high-$z$ attenuation, and the cleanest single trend in the ratio.
+/ Low-$z$ enhancement: $R_"Sn" > 1$ at the lowest $z$, consistent with energy
+  removed from the leading hadron reappearing as additional soft production.
+
+#wide-figure(
+  "../figures/results_RA_vs_z.pdf",
+  [$R_A$ vs the sideband-subtracted $chevron.l z chevron.r$ (diagnostic). Sn
+  separates downward at large $z$; the rightmost point of each curve is the top
+  $z$ box at its true $chevron.l z chevron.r approx 0.53$, not the geometric
+  midpoint. Statistical errors only, correlated through LD#sub[2].],
+  <fig:R-vs-z>,
+  width: 78%,
+)
+
+#warning-box(title: "Weighted mean and median disagree — read before quoting R_A")[
+  The attenuation above is in the *inverse-variance weighted* mean. The
+  *median* $R$ over the same leaves is $0.99$ (C), $0.95$ (Cu), $0.97$ (Sn)
+  --- consistent with unity. The two disagree because the suppression lives in
+  the high-statistics leaves that dominate the weighted mean, while the many
+  thin, noisy leaves scatter symmetrically about one and dominate the median.
+  With this note's own caution about weighted averages in mind (the @BSA
+  section makes the same point), the $R_A$ signal is *suggestive, not
+  established*: the ordering above C is not resolved ($R_"Cu" approx R_"Sn"$),
+  and the whole picture rests on error weights from a truncated,
+  background-subtracted, fallback-photon sample. More statistics --- and a $z$
+  binning that resolves the top box rather than folding $z in [0.37, 1.0]$ into
+  one leaf --- are the way to settle it.
 ]
 
 == Beam-spin asymmetry <sec:results-bsa>
 
-#figure(
-  table(
-    columns: (auto, auto, auto),
-    align: (left, right, right),
-    table.header([*Target*], [*$A_"LU"^(sin phi_h)$*], [*$sum N$*]),
-    [LD#sub[2]], [$0.01378 plus.minus 0.00040$], [$15 ,726 ,897$],
-    [CxC], [$0.01336 plus.minus 0.00050$], [$9 ,718 ,874$],
-    [Cu], [$0.01242 plus.minus 0.00054$], [$8 ,517 ,384$],
-    [Sn], [$0.01201 plus.minus 0.00048$], [$10 ,586 ,165$],
-  ),
-  caption: [$A_"LU"^(sin phi_h)$, inverse-variance weighted over the $235$
-  clean leaves, at the placeholder $P = 0.85$. All four targets agree
-  within $approx 1.5 sigma$: *there is no significant nuclear dependence* at
-  this precision. The central values fall monotonically with $A$, but not
-  significantly so. Values scale as $1\/P$ and will move when the measured
-  polarization is applied.],
-) <tab:bsa>
-
-#warning-box(title: "Two railed fits destroy the naive average")[
-  Two of the $237$ leaves --- ids *72* and *170*, both at low
-  $Q^2 approx 1.19$, $x_B approx 0.10$ --- have fits pinned at the
-  parameter bound $|A| = 0.5$ with
-  $sigma_A = 3.86 times 10^(-6)$ and $chi^2 \/ "ndf" approx 10^(11)$.
-
-  Inverse-variance weighting hands them weight $approx 6.7 times 10^(10)$,
-  around $10^(10)$ times that of a real leaf. The unfiltered weighted
-  averages are consequently
-
-  #align(center)[
-    #text(size: 9.5pt)[
-      $A_"LU"("CxC") = +0.49997$, quad $A_"LU"("Cu") = -0.49997$
-    ]
-  ]
-
-  --- i.e.\ *the railed leaves alone*, with the other 236 contributing
-  nothing. @tab:bsa excludes them, giving the physical $approx 0.012 - 0.014$.
-
-  *Never compute an average from this file without filtering.* The result
-  file as written contains no quality flag, so nothing warns a downstream
-  user. A fit-quality mask (reject $|A|$ at the bound, $sigma_A < 10^(-4)$,
-  or $chi^2\/"ndf" > 10$) belongs in the producing script, not in each
-  consumer.
-]
-
-Binned in $z$, the LD#sub[2] asymmetry rises mildly from $0.0106$ below
-$z = 0.15$ to $0.0159$ near $z approx 0.3$ --- the expected trend. Fit
-quality is good: median $chi^2\/"ndf"$ of $0.95 - 0.98$ with a maximum of
-$2.7$ across the clean leaves.
-
-#wide-figure(
-  "../figures/ALU_grid_perQ2.pdf",
-  [$A_"LU"^(sin phi_h)$ across the $(x_B, p_T^2)$ display grid for one
-  $Q^2$ slice. The four targets overlap within their uncertainties
-  throughout --- the visual form of the statement in @tab:bsa that no
-  nuclear dependence is resolved. Values shown use the *placeholder*
-  $P = 0.85$ and scale as $1\/P$ (@sec:bsa-polarization).],
-  <fig:alu-grid>,
-  width: 90%,
-  page: 1,
-)
+Not yet extracted. `pi0.bsa` refuses to run without a measured beam
+polarization (@sec:bsa-polarization) --- there is deliberately no placeholder,
+the old code's self-declared $P = 0.85$ having been removed --- and the @RGD
+value is not yet recorded in `cuts.json`. The Stage B `bsa` tree is written and
+waiting; the asymmetry will be filled in here once $P plus.minus sigma_P$ is
+supplied.
