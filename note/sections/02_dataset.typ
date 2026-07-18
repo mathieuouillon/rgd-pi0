@@ -27,7 +27,7 @@ Four target configurations enter this note:
   of @eq:multiplicity compares data recorded at different times. Cu and Sn
   are the exception --- they are two foils in one CuSn assembly, exposed in
   the *same* runs and separated offline by the electron vertex $v_z$
-  (@sec:vertex). The C++ stage writes one file per target.],
+  (@sec:vertex). Stage A writes one slim file per target.],
 ) <tab:targets>
 
 The Cu/Sn exception is worth keeping in mind when reading @sec:results: of
@@ -37,11 +37,10 @@ them with either. The Cu-to-Sn *comparison* is therefore free of the
 run-to-run systematic that afflicts every ratio against LD#sub[2].
 
 *Torus polarity.* Every result in this note comes from *outbending* data
-only. All four production files carry the `_OB` suffix, and no inbending
-file is read by any script. A `Polarity.INBENDING` enumerator exists in the
-configuration module but is unused in the $pi^0$ chain. The inbending
-dataset therefore remains an untapped statistical reserve, and --- more
-importantly --- a polarity comparison is one of the few
+only. The run-list filter (@sec:runs) selects the outbending runs; the
+inbending set is present in `config/runs.json` but no production reads it.
+The inbending dataset therefore remains an untapped statistical reserve, and
+--- more importantly --- a polarity comparison is one of the few
 detector-systematic handles available; it has not been exercised.
 
 == Run ranges <sec:runs>
@@ -58,15 +57,15 @@ detector-systematic handles available; it has not been exercised.
     [CxC], [Inbending],  [18339 -- 18346], [8],
     [CuSn],                 [Inbending],  [18347 -- 18394], [27],
   ),
-  caption: [@RGD run lists as recorded in `clas12/Runs.hpp`, with run counts
-  obtained by parsing the header directly. Cu and Sn share the `CuSn` run
-  list --- they are two foils in one assembly, separated offline by vertex
-  (@sec:vertex). *These lists are not applied by any binary* (see
-  @sec:provenance-gaps); they document the run ranges but do not constitute
-  the production selection. The header additionally records a
-  `special_DC_runs_CuSn` set (18358--18368, 10 runs) and six small LD#sub[2]
-  trigger-configuration sets spanning 18419--18535, none of which is used to
-  include or exclude anything.],
+  caption: [@RGD run lists as recorded in `config/runs.json`. Cu and Sn share
+  the `CuSn` run list --- they are two foils in one assembly, separated
+  offline by vertex (@sec:vertex). *These lists are applied*: `pi0.farm`
+  refuses any input file whose run is not in the target's list for the
+  requested polarity, because the SIDIS-train directory tree holds inbending
+  and outbending runs together and the slim schema records no polarity
+  (@sec:provenance-gaps). The file also records a `special_DC_runs_CuSn` set
+  (18358--18368) and six small LD#sub[2] trigger-configuration sets, none of
+  which enters the outbending production.],
 ) <tab:runs>
 
 The three outbending lists are *pairwise disjoint* --- no run appears under
@@ -118,7 +117,10 @@ Ordering those 515 runs and labelling each by its target resolves them into
 
 == Processing chain <sec:dataflow>
 
-The analysis runs in three stages, in two separate repositories.
+The analysis is one repository --- `github.com/mathieuouillon/rgd-pi0`, C++20
+and Python, LGPL-3.0 --- run in four stages. Each stage stamps its
+configuration and its inputs into its output, and refuses to build physics on
+an input it cannot vouch for (@sec:provenance-gaps).
 
 #figure(
   block(inset: (y: 4pt))[
@@ -127,154 +129,118 @@ The analysis runs in three stages, in two separate repositories.
       columns: (auto, 1fr, auto),
       align: (left, left, left),
       table.header([*Stage*], [*What it does*], [*Output*]),
-      [1. Skim], [`pi0_multiplicity_skim` reads @HIPO DST files from tape
-        (the SIDIS train under
-        `/mss/clas12/rg-d/production/pass1/recon/<target>/dst/train/SIDIS/`),
-        applies electron, @DIS and photon selection, and writes a slim
-        two-bank @HIPO file. Submitted to the JLab farm as a @SWIF2
-        workflow, one job per few input files, staged from `/mss` and
-        returned to `/volatile`.],
-        [`PI0::event`, `PI0::photons`],
-      [2. Analysis], [`pi0_multiplicity` reads the slim skim, reconstructs
-        $pi^0 -> gamma gamma$, computes @SIDIS kinematics, and fills the
-        binned histograms and the `pi0_pairs` ntuple. Run per target via
-        `run_pi0_batch.py`.],
-        [`pi0_multiplicity_<T>_OB.root`],
-      [3. Extraction], [Python scripts read the ROOT histograms/ntuple and
-        extract the physics: yields, $R_A$, $Delta chevron.l p_T^2 chevron.r$,
-        $A_"LU"$.],
+      [A. Skim], [`stageA_skim` (hipo4 + RDataFrame) reads @HIPO DST files ---
+        the SIDIS train under
+        `/cache/clas12/rg-d/production/pass1/recon/<T>/dst/train/SIDIS/` ---
+        applies electron, @DIS and @GBT photon selection, and writes a slim
+        `events` TTree. Driven by `pi0.batch` (@SWIF2) on the farm or
+        `pi0.local_batch` interactively.],
+        [slim `events` ROOT],
+      [B. Grid], [`make_grid` scans the slims and writes the frozen
+        equal-statistics binning: Grid A $(Q^2, x_B)$ and Grid B $(z, p_T^2)$
+        (@sec:binning). The edges and their hash are committed to
+        `config/binning/`.],
+        [`grid_A_q2_xb.json`, `grid_B_z_pt2.json`],
+      [C. Bin], [`stageB_bin` reads the slims, reconstructs $pi^0 -> gamma
+        gamma$, computes @SIDIS kinematics, builds the frozen mixed-event
+        donor pool (@sec:background) and fills four flat trees on the grid.],
+        [binned ROOT (`spectra`, `ptb3d`, `n_dis`, `bsa`)],
+      [D. Extract], [`pi0.ratio`, `pi0.broadening`, `pi0.bsa`, `pi0.qa`
+        (uproot) read the binned trees and extract the physics: yields,
+        $R_A$, $Delta chevron.l p_T^2 chevron.r$, $A_"LU"$.],
         [CSV + PDF],
     )
   ],
-  caption: [The three processing stages. Stages 1--2 are C++20
-  (`clas-framework`); stage 3 is Python (`analyses/pi0/`). The division
-  matters for reading this note: *every kinematic cut lives in stages 1--2*,
-  and the Python layer applies no kinematic selection at all beyond a
-  $m_(gamma gamma)$ window and fit-quality gates.],
+  caption: [The four processing stages. A--C are C++20 (static library
+  `pi0_core` plus the three executables); D is Python (`pi0` package). The
+  division matters for reading this note: *every kinematic cut lives in
+  `config/cuts.json`* and is applied in stages A--C; the Python layer applies
+  no kinematic selection beyond a $m_(gamma gamma)$ window and fit-quality
+  gates.],
 ) <tab:dataflow>
 
-The skim exists because it is a large reduction: only the trigger
-electron's four-momentum, the @DIS kinematics, the helicity and the
-selected photons survive. That makes the downstream analysis fast to
-iterate, at a price documented in @sec:skim-cost --- the photon selection
-is baked in and cannot be varied downstream.
+The skim exists because it is a large reduction: only the trigger electron's
+four-momentum, the @DIS kinematics, the helicity and the selected photons
+survive. That makes the downstream analysis fast to iterate, at a price
+documented in @sec:skim-cost --- the photon selection is baked in and cannot
+be varied downstream.
 
-*Program freezing.* The submission script snapshots the executable, its
-shared libraries and the configuration into a per-workflow directory and
-runs jobs against that copy, so a queued workflow is decoupled from
-ongoing development of the source tree. This is good practice and is worth
-recording: it means the code state of a given production is recoverable
-from the frozen directory, not from `git`.
-
-== Code provenance <sec:code-provenance>
-
-Both C++ working directories on the analysis machine are checkouts of the
-same repository (`gitlab.com/MathieuOuillon/clas-framework`) at *different
-commits*, and they differ in exactly the place that matters most for this
-note.
-
-#figure(
-  table(
-    columns: (auto, auto, auto, 1fr),
-    align: (left, left, left, left),
-    table.header([*Checkout*], [*HEAD*], [*Date*], [*$pi^0$ binning*]),
-    [`clas-framework`], [`e8334b1`], [16 Jun 2026],
-      [kd-tree (`AdaptiveBinner4D`)],
-    [`clas-analysis-1`], [`29150c0`], [14 Jul 2026],
-      [factorized $(Q^2, x_B) times (z, p_T^2)$ grids],
-  ),
-  caption: [The two checkouts. `e8334b1` is a direct ancestor of `29150c0`:
-  the newer tree is three commits ahead, one of which
-  (`eac29a1`, _"replace kd-tree pi0 binning with factorized
-  $(Q^2,x_B) times (z,p_T^2)$ grids"_) *deletes* `AdaptiveBinner4D.hpp`
-  outright.],
-) <tab:checkouts>
-
-#important-box(title: "Which code this note describes")[
-  *This note documents the kd-tree binning*, because that is what produced
-  every number and figure presented here. The evidence is unambiguous: all
-  result files carry a `leaf` index with data-driven quantile box edges
-  (@sec:binning), and they are dated 8--16 June 2026 --- contemporaneous
-  with `e8334b1` (16 June), and a month before the refactor (14 July).
-
-  The kd-tree machinery *no longer exists* in `clas-analysis-1`. Anyone
-  reading that checkout to understand the current results will find a
-  factorized grid that has produced none of them. The refactor is
-  summarised in @sec:binning-future; it changes the binning for the *next*
-  production and will require every number in @sec:results to be
-  regenerated.
-]
+*Program freezing.* `pi0.batch` snapshots the executable, its shared
+libraries and the configuration into a per-workflow directory and runs @SWIF2
+jobs against that copy, so a queued workflow is decoupled from ongoing
+development of the source tree.
 
 == Statistics <sec:statistics>
+
+The numbers in @sec:results are a *diagnostic first run* of the whole chain,
+not the full luminosity: Stage A read only the first $2 times 10^6$ events of
+each of the 95 SIDIS-train files (a few hours on one interactive node), so the
+counts below are a prefix of the available data and carry the truncation
+caveat throughout.
 
 #figure(
   table(
     columns: (auto, auto, auto),
     align: (left, right, right),
-    table.header([*Target*], [*$N^"DIS"$*], [*$pi^0$ pairs in window*]),
-    [LD#sub[2]], [$23 ,098 ,120$], [$15.73 times 10^6$],
-    [CxC], [$13 ,642 ,531$], [$9.72 times 10^6$],
-    [Cu], [$12 ,277 ,770$], [$8.52 times 10^6$],
-    [Sn], [$15 ,215 ,380$], [$10.59 times 10^6$],
+    table.header([*Target*], [*$N^"DIS"$*], [*$pi^0$ (same-event, binned)*]),
+    [LD#sub[2]], [$1 ,987 ,072$], [$882 ,869$],
+    [CxC], [$1 ,157 ,245$], [$521 ,954$],
+    [Cu], [$1 ,045 ,316$], [$461 ,529$],
+    [Sn], [$1 ,299 ,764$], [$577 ,531$],
   ),
-  caption: [Integrated statistics. @DIS counts are the inclusive
-  normalisation of @eq:multiplicity, summed over the 58 populated
-  $(Q^2, x_B)$ cells. The $pi^0$ column is the number of $gamma gamma$
-  pairs inside $0.110 < m_(gamma gamma) < 0.160$ GeV summed over all
-  kd-tree leaves entering the @BSA, and is *not* background-subtracted ---
-  it is an upper bound on the signal, not a $pi^0$ count. The resulting
-  statistical precision on $R_A$ is $1-2%$ per leaf.],
+  caption: [Statistics of the diagnostic run. $N^"DIS"$ is the inclusive
+  normalisation of @eq:multiplicity (events read per target); the $pi^0$
+  column is the same-event $gamma gamma$ pairs binned by Stage B, *before*
+  background subtraction --- an upper bound on the signal, not a $pi^0$
+  count. Under the $2 times 10^6$-event/file cap these total
+  $approx 5.5 times 10^6$ @DIS events and $2.5 times 10^6$ $pi^0$ candidates.
+  A full-luminosity run reuses the same machinery with the cap removed.],
 ) <tab:statistics>
 
 #wide-figure(
   "../figures/kinematics_pi0.pdf",
   [Kinematic coverage of the reconstructed $pi^0$ sample. The $Q^2$ versus
-  $x_B$ correlation band is the reason the factorized normalisation
-  fallback of @sec:normalisation is unsafe, and the reason an adaptive
-  binning was chosen over a product grid in the first place: a rectangular
-  grid spanning this acceptance is mostly empty.],
+  $x_B$ correlation band is why the factorized $(Q^2, x_B)$ grid of
+  @sec:binning leaves its corner cells empty by construction: a product grid
+  cannot follow a correlated distribution the way the equal-statistics *axes*
+  can, and that trade is made deliberately in exchange for global, quotable,
+  version-controlled edges.],
   <fig:kinematics>,
   width: 92%,
 )
 
-== Provenance gaps <sec:provenance-gaps>
+== Provenance <sec:provenance-gaps>
 
-Three pieces of provenance that a published note requires are *not
-recoverable* from either repository and must be supplied before
-circulation.
+Reproducibility is a design goal of this codebase, not an afterthought, and
+the pieces a published note needs are in the repository rather than on a
+scratch disk.
 
-#warning-box(title: "Unrecoverable provenance")[
-  + *The run list is recorded but never applied.* `clas12/Runs.hpp` contains
-    explicit @RGD run lists (@tab:runs), but they are *dead code*: the only
-    consumer would be `FileUtils::filter_by_run_numbers`, which has no
-    caller anywhere in the repository. No binary performs run-by-run
-    selection, bad-run vetoing, or trigger-configuration filtering. The runs
-    that actually entered a production are therefore whatever file list was
-    passed on the command line --- which is not recorded. The lists in
-    @tab:runs should be treated as *documentation of the RG-D run ranges*,
-    not as a description of the selection that ran.
-    Likewise `rcdb_backup.sql` (27 MB) and `RGD_charge_final-MH-Nov24.xlsx`
-    sit at the root of the ifarm analysis folder but are read by *no* $pi^0$
-    script --- the charge spreadsheet is used only by the unrelated
-    nuclear-transparency analysis.
+#result-box(title: "What every result can be traced to")[
+  + *The run list is applied, and recorded.* `config/runs.json` holds the
+    @RGD run lists (@tab:runs), and `pi0.farm` filters every input against
+    them: a file whose run is not in the requested target/polarity list is
+    rejected with a reason. Inbending and outbending runs share one directory
+    tree and the slim schema records no polarity, so this filter is what keeps
+    the two torus polarities from being silently mixed.
 
-  + *The production configuration is not in the repository.* No shipped
-    config produces the file names that the Python actually reads
-    (`pi0_multiplicity_<T>_OB.root`; the configs emit `..._Outbending.root`),
-    and the produced @BSA binning tree has 250 leaves where the shipped
-    config specifies a stratified $5 times 5 times 3 times 3 = 225$ split.
-    The configuration that made the production files is therefore *not* the
-    one in the repository.
+  + *The configuration is committed.* Every threshold lives in
+    `config/cuts.json`; a cut value appearing in code is a bug. Its SHA-256
+    (`801ba433…`) is stamped into every slim, every binned file and every
+    result CSV, and each stage refuses to run if the config it loaded is not
+    the one its inputs were made with.
 
-  + *The binning tables live only on ifarm.* The kd-tree leaf boxes
-    (`pi0_adaptive_binning*.txt.boxes.csv`) are written by the C++ pass into
-    `/work` and exist nowhere else. They are an input to every Python script
-    and are not archived with the results. The binning reported in
-    @sec:binning was reconstructed from the output CSVs
-    (@sec:binning-reconstruction).
+  + *The binning is committed and hashed.* `make_grid` writes
+    `config/binning/grid_{A,B}.json` with a provenance block --- the dataset,
+    the targets, the event count and a hash of the edges
+    (`provenance_hash 2acf618294a6c3b0` for the grids used here) --- and that
+    hash is stamped into every output binned on them. The edges are global,
+    quotable and under version control.
 
-  Additionally, none of `results/`, `analyses/`, `common/` or `plots/` is
-  under version control --- the ifarm analysis folder has two commits and
-  the analysis directories are untracked. The only provenance for every
-  number quoted in @sec:results is a file modification time.
+  + *Unpublishable inputs are refused, loudly.* Stage A stamps
+    `gbt.fallback_used` and any `--max-events` truncation into its provenance;
+    Stage B propagates one `provenance_stageA_NNN` block per input; the Python
+    stage reads them and refuses to produce a physics number from a fallback,
+    truncated or placeholder-grid input unless explicitly told the result is
+    diagnostic (`--allow-unpublishable`). Every diagnostic number in
+    @sec:results carries that stamp.
 ]
