@@ -22,7 +22,7 @@ gamma-gamma pair and *not* necessarily a $\pi^0$.
 | `src/stageB_bin/`     | **Stage B** — slim → binned spectra + kinematic sums. Includes the frozen donor pool. |
 | `src/tools/`          | `dump_columns` (RHipoDS column probe), `make_grid` (equal-statistics grids). |
 | `python/pi0/`         | **Stage C** — extraction: yields, $R_A$, $\Delta\langle p_T^2\rangle$, $A_{LU}$, QA. |
-| `note/`               | The physics analysis note (Typst). `cd note && typst compile main.typ`. The selection figures in it are produced by `pi0.plots_selection`. |
+| `note/`               | The physics analysis note (Typst). `cd note && typst compile main.typ`. Its figures come from `pi0.plots_selection` (cutflow, GBT score, sampling fraction), `pi0.plots_kinematics` (M(γγ), z, pT², φ_h, the binning grid) and `pi0.plots_results` (R_A, Δ⟨pT²⟩). |
 | `data/Vz/`            | Vertex-correction parameters. Vendored verbatim.                           |
 | `tests/`              | Catch2 v3 unit tests (C++). `python/tests/` for pytest.                    |
 | `external/hipo-cpp/`  | **Submodule, pinned. Do not modify.** See below.                           |
@@ -511,8 +511,8 @@ asserting it).
     "inputs": ["/mss/clas12/rg-d/production/pass1/recon/LD2/dst/recon/"],
     "files_per_job": 1,
     "exclude_runs": [],
-    "output_dir": "/volatile/clas12/users/ouillon/rgd-pi0/LD2",
-    "log_dir":    "/volatile/clas12/users/ouillon/rgd-pi0/LD2/logs",
+    "output_dir": "/volatile/clas12/ouillon/rgd-pi0/LD2",
+    "log_dir":    "/volatile/clas12/ouillon/rgd-pi0/LD2/logs",
     "swif2": {
       "workflow": "rgd_pi0_stageA_LD2_outbending",
       "account": "clas12", "partition": "production",
@@ -798,12 +798,29 @@ outputs say so themselves — every file carries a provenance block recording it
 inputs, config hash, grid hashes, the photon model used and whether the RG-A
 fallback was taken.
 
+The whole chain has been run end-to-end on real RG-D data once, as a
+**diagnostic first pass**: Stage A skimmed the SIDIS train under a 2M-event/file
+cap (95 slims, ≈5.5M DIS events, ≈2.5M $\pi^0$ candidates), `make_grid` froze the
+binning from those slims, and Stage B/C produced $R_A$ and
+$\Delta\langle p_T^2\rangle$. The machinery is validated — the $p_T$ broadening
+increases monotonically with $A$, as expected — but the numbers are
+**diagnostic**, and the truncation and the RG-A photon fallback are stamped into
+every one of them.
+
 Known blockers, all recorded in the provenance or the config rather than in
 someone's memory:
 
-- `config/binning/*.json` are **placeholders**. Real grids come from `make_grid`
-  run over real RG-D slims.
-- **No GBT photon model exists for RG-D** (the map stops at run 16772). The
-  RG-A fallback refuses by default and must be opted into explicitly.
+- Results so far are the **diagnostic run above, not full luminosity** — Stage A
+  read a 2M-event prefix of each file. A full run reuses the same machinery with
+  the cap removed.
+- **No GBT photon model exists for RG-D** (the map stops at run 16772). The RG-A
+  fallback refuses by default, must be opted into explicitly, and stamps
+  `gbt.fallback_used` into every output — which the Python stage then refuses to
+  publish.
 - The **beam polarisation** is not set; the BSA cannot be quoted without it.
 - **No systematic uncertainty is evaluated.**
+
+The binning grids in `config/binning/` are **no longer placeholders**: they are
+the frozen equal-statistics edges `make_grid` computed from the diagnostic slims,
+committed and hashed. A full-luminosity re-fit would move the edge positions but
+not the schema.
