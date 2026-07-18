@@ -220,9 +220,9 @@ def main(argv: list[str] | None = None) -> int:
                       range=[(xe[0], xhi), (ye[0], ye[-1])],
                       cmap="viridis", cmin=1, norm=LogNorm())
         for x in xe:
-            ax.axvline(x, color="white", lw=0.7)
+            ax.axvline(x, color="black", lw=0.7)
         for y in ye:
-            ax.axhline(y, color="white", lw=0.7)
+            ax.axhline(y, color="black", lw=0.7)
         ax.set(title=title, xlabel=xlabel, ylabel=ylabel,
                xlim=(xe[0], xhi), ylim=(ye[0], ye[-1]))
 
