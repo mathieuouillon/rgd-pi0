@@ -117,7 +117,7 @@ Ordering those 515 runs and labelling each by its target resolves them into
 
 == Processing chain <sec:dataflow>
 
-The analysis is one repository --- `github.com/mathieuouillon/rgd-pi0`, C++20
+The analysis is one repository --- `github.com/mathieuouillon/rgd-pi0`, C++17
 and Python, LGPL-3.0 --- run in four stages. Each stage stamps its
 configuration and its inputs into its output, and refuses to build physics on
 an input it cannot vouch for (@sec:provenance-gaps).
@@ -151,7 +151,7 @@ an input it cannot vouch for (@sec:provenance-gaps).
         [CSV + PDF],
     )
   ],
-  caption: [The four processing stages. A--C are C++20 (static library
+  caption: [The four processing stages. A--C are C++17 (static library
   `pi0_core` plus the three executables); D is Python (`pi0` package). The
   division matters for reading this note: *every kinematic cut lives in
   `config/cuts.json`* and is applied in stages A--C; the Python layer applies

@@ -6,7 +6,7 @@
 
 Neutral pions are reconstructed via $pi^0 -> gamma gamma$ in @RGD
 outbending data at $E_"beam" = 10.53$ GeV, on an LD#sub[2] / CxC / Cu / Sn
-target set taken in *separate, block-alternating runs* (@sec:runs). A C++20
+target set taken in *separate, block-alternating runs* (@sec:runs). A C++17
 skim (`stageA_skim`) applies electron, @DIS and AI-based photon selection and
 reduces the data $approx 100 times$; `make_grid` freezes a factorized
 equal-statistics $(Q^2, x_B) times (z, p_T^2)$ grid (@sec:binning); a second
