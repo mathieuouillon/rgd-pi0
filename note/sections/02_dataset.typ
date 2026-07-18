@@ -199,12 +199,14 @@ caveat throughout.
 
 #wide-figure(
   "../figures/kinematics_pi0.pdf",
-  [Kinematic coverage of the reconstructed $pi^0$ sample. The $Q^2$ versus
-  $x_B$ correlation band is why the factorized $(Q^2, x_B)$ grid of
-  @sec:binning leaves its corner cells empty by construction: a product grid
-  cannot follow a correlated distribution the way the equal-statistics *axes*
-  can, and that trade is made deliberately in exchange for global, quotable,
-  version-controlled edges.],
+  [Kinematic coverage of the reconstructed $pi^0$ sample --- the
+  $M(gamma gamma)$ peak, the $z$ and $p_T^2$ spectra, and the Trento $phi_h$
+  (in degrees, $[-180, 180]$) --- unit-area normalised and overlaid for the
+  four targets, reconstructed by `pi0.plots_kinematics` from the diagnostic
+  slims. The four targets agree in shape, as the ratio construction assumes.
+  The $phi_h$ modulation is the @CLAS12 azimuthal acceptance, not physics: it
+  divides out of $A_"LU"$ (@sec:results-bsa) but would dominate an unbinned
+  azimuthal moment.],
   <fig:kinematics>,
   width: 92%,
 )
