@@ -14,6 +14,7 @@ provenance at all.
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -217,6 +218,17 @@ class StageBData:
         return shaped.sum(axis=2).reshape(b.n_3d, -1)
 
 
+def _read_dir_entries(f: uproot.ReadOnlyDirectory, name: str) -> dict[str, str]:
+    """The ``fName -> fTitle`` map of every ``TNamed`` in directory ``name``."""
+    entries: dict[str, str] = {}
+    for key in f[name].keys(recursive=False):
+        obj = f[name][key]
+        members = getattr(obj, "all_members", {})
+        if "fName" in members and "fTitle" in members:
+            entries[str(members["fName"])] = str(members["fTitle"])
+    return entries
+
+
 def _read_provenance(f: uproot.ReadOnlyDirectory, name: str) -> Provenance:
     """Read a directory of ``TNamed`` provenance into name -> title."""
     if name not in {k.rstrip(";1234567890").split(";")[0] for k in f.keys(recursive=False)}:
@@ -224,13 +236,60 @@ def _read_provenance(f: uproot.ReadOnlyDirectory, name: str) -> Provenance:
             f"{f.file_path} has no /{name} block. Every file this stage reads must carry "
             f"its provenance; one that does not cannot be checked and is not usable."
         )
-    entries: dict[str, str] = {}
-    for key in f[name].keys(recursive=False):
-        obj = f[name][key]
-        members = getattr(obj, "all_members", {})
-        if "fName" in members and "fTitle" in members:
-            entries[str(members["fName"])] = str(members["fTitle"])
-    return Provenance(directory=name, entries=entries)
+    return Provenance(directory=name, entries=_read_dir_entries(f, name))
+
+
+#: Stage B writes one ``provenance_stageA_NNN`` directory per input file, in
+#: canonical order, VERBATIM and UNMERGED (stageB_bin main.cxx: "ONE
+#: /provenance_stageA_NNN PER INPUT ... they are not merged either"). There is
+#: no single ``provenance_stageA`` -- reading one is what :func:`_read_stage_a`
+#: fixes.
+_STAGE_A_RE = re.compile(r"provenance_stageA_\d+")
+
+
+def _tripped(block: Provenance, key: str) -> bool:
+    """``starts_true`` without raising on an absent key (a missing flag is not set)."""
+    val = block.get(key)
+    return bool(val) and val.strip().lower().startswith(("true", "yes"))
+
+
+def _read_stage_a(f: uproot.ReadOnlyDirectory) -> Provenance:
+    """Aggregate the per-input ``provenance_stageA_NNN`` blocks into one.
+
+    Stage B keeps them unmerged, one per input, so a file holding several runs
+    cannot pass one run's provenance off as the whole. For the publish guard,
+    though, the file is only as clean as its dirtiest input: a fallback or a
+    truncation in ANY input taints every number. So ``gbt.fallback_used`` and
+    the ``events.max_events_requested`` truncation marker are carried over from
+    any input that trips them; the rest is taken from the first input as
+    representative (all inputs of one Stage B run share a skim config).
+    """
+    names = sorted(
+        n for n in {k.split(";")[0] for k in f.keys(recursive=False)} if _STAGE_A_RE.fullmatch(n)
+    )
+    if not names:
+        raise ProvenanceError(
+            f"{f.file_path} has no /provenance_stageA_NNN block. Every file this stage reads "
+            f"must carry its Stage A provenance (one per input); one that does not cannot be "
+            f"checked and is not usable."
+        )
+    blocks = [Provenance(directory=n, entries=_read_dir_entries(f, n)) for n in names]
+
+    merged: dict[str, str] = dict(blocks[0].entries)
+    fallback = next((b for b in blocks if _tripped(b, "gbt.fallback_used")), None)
+    if fallback is not None:
+        merged["gbt.fallback_used"] = fallback.require("gbt.fallback_used")
+        model = fallback.get("gbt.model")
+        if model:
+            merged["gbt.model"] = model
+    truncated = next(
+        (b for b in blocks if "TRUNCATED" in (b.get("events.max_events_requested") or "").upper()),
+        None,
+    )
+    if truncated is not None:
+        merged["events.max_events_requested"] = truncated.require("events.max_events_requested")
+
+    return Provenance(directory=f"provenance_stageA_[{len(names)} input(s)]", entries=merged)
 
 
 def check_provenance(prov: Provenance, prov_a: Provenance, cfg: Config) -> list[Blocker]:
@@ -364,7 +423,7 @@ def load(
 
     with uproot.open(path) as f:
         prov = _read_provenance(f, "provenance")
-        prov_a = _read_provenance(f, "provenance_stageA")
+        prov_a = _read_stage_a(f)
         blockers = check_provenance(prov, prov_a, cfg)
 
         fatal = [x for x in blockers if x.fatal]
