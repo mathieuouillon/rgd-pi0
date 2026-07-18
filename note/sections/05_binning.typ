@@ -71,10 +71,13 @@ formed bin-for-bin.
 
 #wide-figure(
   "../figures/binning_grid_factorized.pdf",
-  [The factorized equal-statistics grid. Grid lines are global and rectangular
-  in every dimension --- the reproducibility this scheme is built for --- and
-  the corner cells left empty by the $Q^2$--$x_B$ correlation (@fig:kinematics)
-  are the adaptivity it gives up in exchange.],
+  [The factorized equal-statistics grid, drawn over the pooled data density it
+  partitions (Grid A per event, Grid B per $pi^0$; log colour scale). The grid
+  lines are global and rectangular in every dimension --- the reproducibility
+  this scheme is built for --- and the density makes the trade visible: the
+  edges bunch in tight where the data piles up, while the $Q^2$--$x_B$
+  correlation leaves the top-left and bottom-right corner cells empty, the
+  adaptivity a product grid gives up in exchange.],
   <fig:binning-factorized>,
   width: 88%,
 )
