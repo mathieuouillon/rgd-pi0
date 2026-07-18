@@ -10,7 +10,7 @@ cell*. Each axis is cut at data quantiles so that the marginal counts are
 equal along it, and the edges are global, quotable and hashed into every
 output (@sec:provenance-gaps).
 
-This is a deliberate trade against an adaptive (kd-tree) binning. An adaptive
+This is a deliberate trade against an adaptive binning. An adaptive
 tree can follow the strong correlations in the data --- $Q^2$ with $x_B$, and
 $p_T^2$ with $z$ --- and equalise its *leaves*; a product grid cannot, and
 leaves its corner cells under- or un-populated. What the product grid buys in
