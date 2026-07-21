@@ -29,12 +29,12 @@ nominal mass is $m_(pi^0) = 0.1349768$ GeV.
     ]
   ]
 
-  i.e.\ *$4.8 - 5.9$ MeV below* the nominal $134.98$ MeV --- a $4.4%$
+  i.e.\ $4.8 - 5.9$ MeV below the nominal $134.98$ MeV --- a $4.4%$
   energy-scale deficit, consistent across targets to better than $1$ MeV.
   The fitted width is $sigma approx 15.5 - 15.7$ MeV throughout.
 
   Because the $plus.minus 3 sigma$ integration window is centred on the
-  *fitted* $mu$ rather than on the nominal mass (@sec:yield-extraction),
+  fitted $mu$ rather than on the nominal mass (@sec:yield-extraction),
   the shift is largely absorbed and does not by itself bias the yield. Its
   target-independence further protects the ratio. It is nonetheless a clear
   indication that the calorimeter energy scale is uncalibrated for this
@@ -44,7 +44,7 @@ nominal mass is $m_(pi^0) = 0.1349768$ GeV.
 
 == Pair selection <sec:pairing>
 
-Candidates are built by *greedy exclusive pairing*:
+Candidates are built by greedy exclusive pairing:
 
 #figure(
   block(inset: (x: 6pt, y: 4pt))[
@@ -65,22 +65,22 @@ Candidates are built by *greedy exclusive pairing*:
 
 #warning-box(title: "The ±200 MeV window is a pairing cut, not a mass selection")[
   The pairing cut is $|m_(gamma gamma) - 0.1349768| < Delta m$ with
-  $Delta m$ = `pairing.mass_window_gev` $= 0.2$ GeV --- *deliberately wide*.
+  $Delta m$ = `pairing.mass_window_gev` $= 0.2$ GeV --- deliberately wide.
   Since $m_(gamma gamma) >= 0$ always, it reduces to
 
   $ m_(gamma gamma) < 0.335 "GeV" $
 
-  with *no lower bound at all*: essentially every $gamma gamma$ pair below
-  $335$ MeV enters the "$pi^0$ candidate" collection, so it is *not a
-  mass-selected sample* in any meaningful sense.
+  with no lower bound at all: essentially every $gamma gamma$ pair below
+  $335$ MeV enters the "$pi^0$ candidate" collection, so it is not a
+  mass-selected sample in any meaningful sense.
 
-  This is *by design, not by accident* --- the signal is extracted offline by
+  This is by design, not by accident --- the signal is extracted offline by
   fitting and subtracting the $m_(gamma gamma)$ spectrum (@sec:background),
   which requires the sidebands to be present; narrowing the window would
   destroy the background estimate. Two consequences must be stated plainly:
 
   - the $p_T$-broadening accumulators, which are filled from this collection
-    *without* any offline subtraction, are computed over a largely
+    without any offline subtraction, are computed over a largely
     combinatorial sample --- see @sec:ptb-caveat;
   - the greedy "closest to $m_(pi^0)$" ordering (@fig:pairing) is doing more
     work than the window is, since the window barely excludes anything.
@@ -116,7 +116,7 @@ is therefore momentum-dependent:
 
 $ theta_"min" (p) = 17.561 dot exp(-0.756 p) + 1.0 quad ["degrees"] , $ <eq:theta-min>
 
-where $p = |arrow(p)_(gamma_1) + arrow(p)_(gamma_2)|$ is the *pair*
+where $p = |arrow(p)_(gamma_1) + arrow(p)_(gamma_2)|$ is the pair
 momentum. The threshold falls from $18.56degree$ at $p = 0$ through
 $4.87degree$ at $p = 2$ GeV to an asymptote of $1.0degree$.
 
@@ -155,7 +155,7 @@ $ phi_h = arctan_2 (arrow(p)_perp dot hat(y), space arrow(p)_perp dot hat(x)) . 
   so $hat(x)$ lies along the incoming lepton's transverse component and
   $(hat(x), hat(y), hat(q))$ is right-handed, exactly as Trento requires.
 
-  Note that $phi_h$ is stored in *degrees* throughout the C++ and the
+  Note that $phi_h$ is stored in degrees throughout the C++ and the
   ntuple; the Python converts to radians before fitting.
 ]
 
@@ -166,13 +166,13 @@ $ phi_h = arctan_2 (arrow(p)_perp dot hat(y), space arrow(p)_perp dot hat(x)) . 
   $20 ,000$ configurations, with no restriction on $phi_h$. That figure
   does not survive scrutiny:
 
-  - it is *seed-dependent* --- over ten seeds at the same sample size it
+  - it is seed-dependent --- over ten seeds at the same sample size it
     ranges from $1.7 times 10^(-11)$ to $9.3 times 10^(-10)$ degrees;
-  - and it is *unbounded in sample size*, degrading from
+  - and it is unbounded in sample size, degrading from
     $3 times 10^(-11)$ at $N = 2 times 10^4$ to
     $5.3 times 10^(-8)$ degrees at $N = 2 times 10^7$.
 
-  The cause is the *reference*, not the implementation. Every worst case
+  The cause is the reference, not the implementation. Every worst case
   sits at $phi_h approx 0$ or $plus.minus 180degree$, where $arccos$ is
   ill-conditioned: an error $epsilon$ in $cos phi_h$ becomes
   $tilde sqrt(2 epsilon)$ in $phi_h$. So an all-$phi$ "agreement to $X$"
@@ -180,7 +180,7 @@ $ phi_h = arctan_2 (arrow(p)_perp dot hat(y), space arrow(p)_perp dot hat(x)) . 
   under test --- and shrinking $X$ by taking more samples is impossible by
   construction.
 
-  The bound that *does* hold uniformly in $phi_h$ comes from removing
+  The bound that does hold uniformly in $phi_h$ comes from removing
   $arccos$ from the test entirely: construct a hadron with a known $phi_h$
   in the $(hat(x), hat(y), hat(q))$ frame and require the implementation to
   recover it. That round trip agrees to $5 times 10^(-13)$ degrees, uniform

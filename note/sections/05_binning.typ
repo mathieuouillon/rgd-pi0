@@ -2,17 +2,17 @@
 
 = Kinematic binning <sec:binning>
 
-The four-dimensional binning is a *factorized equal-statistics product grid*.
+The four-dimensional binning is a factorized equal-statistics product grid.
 Two grids are fitted to the data by `make_grid` and frozen into
 `config/binning/`: Grid A over $(Q^2, x_B)$ and Grid B over $(z, p_T^2)$. The
-4D bin is the product $A times B$, with Grid B *independent of the Grid A
-cell*. Each axis is cut at data quantiles so that the marginal counts are
+4D bin is the product $A times B$, with Grid B independent of the Grid A
+cell. Each axis is cut at data quantiles so that the marginal counts are
 equal along it, and the edges are global, quotable and hashed into every
 output (@sec:provenance-gaps).
 
 This is a deliberate trade against an adaptive binning. An adaptive
 tree can follow the strong correlations in the data --- $Q^2$ with $x_B$, and
-$p_T^2$ with $z$ --- and equalise its *leaves*; a product grid cannot, and
+$p_T^2$ with $z$ --- and equalise its leaves; a product grid cannot, and
 leaves its corner cells under- or un-populated. What the product grid buys in
 return is reproducibility: global rectangular edges that are identical on
 every run, version-controlled, hashed into every result, and quotable in every
@@ -32,7 +32,7 @@ dimension --- none of which an unseeded, per-cell-adaptive tree offered.
   ),
   caption: [The grids. The same/mixed $m_(gamma gamma)$ spectra and the
   per-bin $phi_h$ histogram share the 4D grid; the broadening uses
-  $A times (z "axis of" B)$, with $p_T^2$ as the *observable* rather than a
+  $A times (z "axis of" B)$, with $p_T^2$ as the observable rather than a
   binning dimension. Nine of the $56$ Grid A cells are the empty low-$x_B$ /
   high-$Q^2$ corner (@fig:kinematics), so $47$ carry data.],
 ) <tab:trees>
@@ -64,7 +64,7 @@ formed bin-for-bin.
   `provenance_hash 2acf618294a6c3b0`). Each axis is quantile-spaced so its
   marginal is flat: the Grid A row sums are equal to $approx 686 000$ per
   $Q^2$ row and $approx 784 000$ per $x_B$ column, the Grid B marginals to
-  $approx 502 000$ each, to within rounding. The cells are deliberately *not*
+  $approx 502 000$ each, to within rounding. The cells are deliberately not
   flat --- the two axes are correlated, and a factorized grid cannot follow
   that.],
 ) <tab:kdtree-geometry>
@@ -85,13 +85,13 @@ formed bin-for-bin.
 == The top-bin problem <sec:binning-caveat>
 
 #important-box(title: "The widest bins must be plotted at their mean, not their midpoint")[
-  An equal-statistics grid packs equal *counts* into each bin, so the
+  An equal-statistics grid packs equal counts into each bin, so the
   outermost bin of each axis --- which runs to the kinematic limit --- is
   enormously wide while holding no more $pi^0$ than its narrow neighbours. The
   top $z$ bin spans $[0.375, 1.0]$ and the top $p_T^2$ bin $[0.21, 4.99]$
   GeV#super[2], against interior widths of a few hundredths.
 
-  Its geometric midpoint is therefore *not* where the data sits. The top $z$
+  Its geometric midpoint is therefore not where the data sits. The top $z$
   box has a true, sideband-subtracted $chevron.l z chevron.r approx 0.53$, not
   its midpoint $0.69$; the top $p_T^2$ box has
   $chevron.l p_T^2 chevron.r approx 0.3$ GeV#super[2], not $approx 2.6$.
@@ -99,7 +99,7 @@ formed bin-for-bin.
   at high $z$ and manufacture an apparent high-$p_T$ (Cronin-like) rise that is
   purely an abscissa artefact.
 
-  The *values* in a bin are correct integrals over it; only a midpoint
+  The values in a bin are correct integrals over it; only a midpoint
   abscissa would be wrong --- which is why this analysis never uses one.
 ]
 
@@ -114,7 +114,7 @@ description of the machinery, not an outstanding bug:
   compensated (Neumaier) accumulator so the sums are bit-identical across
   thread counts.
 
-/ Python: every abscissa resolves to the *sideband-subtracted* mean
+/ Python: every abscissa resolves to the sideband-subtracted mean
   $chevron.l X chevron.r = "sum"_X \/ n_"same"$ over the signal mass region,
   never the box centre. This is why the top $z$ point in @tab:R-vs-z and
   @fig:R-vs-z sits at $chevron.l z chevron.r = 0.53$, and why the broadening

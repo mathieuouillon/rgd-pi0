@@ -10,8 +10,8 @@ technical problem of the multiplicity measurement.
 
 == Event mixing <sec:mixing>
 
-The background shape is estimated by *event mixing*: pairing photons from
-*different* events, which by construction cannot contain a true
+The background shape is estimated by event mixing: pairing photons from
+different events, which by construction cannot contain a true
 $pi^0 -> gamma gamma$ and therefore trace the pure combinatorial shape
 while retaining the single-photon kinematics and the detector acceptance.
 
@@ -33,8 +33,8 @@ ensures the combinatorics are comparable.
     align: (left, left),
     table.header([*Property*], [*Implementation*]),
     [Depth], [$N = 50$ events per bin, @FIFO eviction],
-    [Ordering], [Mix *then* insert --- an event never mixes with itself],
-    [Pairing], [Current event's photons $times$ *every* photon in the pool],
+    [Ordering], [Mix then insert --- an event never mixes with itself],
+    [Pairing], [Current event's photons $times$ every photon in the pool],
     [Concurrency], [32 shards keyed on `bin % 32`, shared-mutex: concurrent
       reads while mixing, exclusive lock to update],
     [Storage], [5-double cache per photon, not full particles],
@@ -49,22 +49,22 @@ ensures the combinatorics are comparable.
   background shape is not statistics-limited.],
 ) <tab:pool>
 
-The finalisation step logs pool occupancy and *warns for every bin that
-never reached depth $N$* --- a genuine quality-assurance feature, and the
+The finalisation step logs pool occupancy and warns for every bin that
+never reached depth $N$ --- a genuine quality-assurance feature, and the
 right place to look for bins where the background estimate is thin.
 
 === Two asymmetries in the mixed sample <sec:mixing-asymmetry>
 
 #important-box(title: "The e–γ cut is one-sided for mixed pairs")[
-  For a mixed pair only the *current-event* photon is tested against the
+  For a mixed pair only the current-event photon is tested against the
   $theta_(e gamma) > 8degree$ cut; the pooled photon is never re-tested
-  against the current event's electron. This is *correct by construction*
+  against the current event's electron. This is correct by construction
   --- the pooled photon was already tested against its own event's
   electron, which is the physically meaningful reference.
 
-  There is, however, a genuine inconsistency alongside it: *all* of the
-  current event's photons are inserted into the pool, *including those that
-  failed their own event's $e gamma$ cut*. So a photon that was rejected
+  There is, however, a genuine inconsistency alongside it: all of the
+  current event's photons are inserted into the pool, including those that
+  failed their own event's $e gamma$ cut. So a photon that was rejected
   from the same-event spectrum can still contribute to the mixed-event
   spectrum. The effect is a small shape distortion of the background near
   the electron direction. It is not corrected and has not been quantified.
@@ -72,7 +72,7 @@ right place to look for bins where the background estimate is thin.
 
 == Sideband normalisation and subtraction <sec:subtraction>
 
-The mixed spectrum reproduces the background *shape* but carries an
+The mixed spectrum reproduces the background shape but carries an
 arbitrary normalisation (it has far more entries). It is scaled to the
 same-event spectrum in a high-mass sideband:
 
@@ -88,14 +88,14 @@ The $m_(gamma gamma)$ histograms are 200 bins over $[0, 0.3]$ GeV, i.e.\
 $1.5$ MeV per bin.
 
 #note-box(title: "A single high-mass sideband")[
-  The normalisation uses only the *upper* sideband $(0.17, 0.28)$ GeV. A
+  The normalisation uses only the upper sideband $(0.17, 0.28)$ GeV. A
   low-mass sideband is available in principle but is not used --- at low
   $m_(gamma gamma)$ the spectrum is distorted by the opening-angle cut of
   @eq:theta-min, which removes precisely the small-angle pairs that
   populate it, so the mixed and same spectra are not expected to share a
   shape there.
 
-  The uncertainty on $alpha$ is *not propagated*: @eq:subtraction treats it
+  The uncertainty on $alpha$ is not propagated: @eq:subtraction treats it
   as exact. Given that the sideband contains a large number of counts this
   is a small effect, but it is a real omission and it is trivially fixable.
 ]
@@ -126,14 +126,14 @@ subtraction on the LD#sub[2] sample:
   ),
   caption: [Background-subtraction diagnostics. The sideband-slope test is
   the most informative of the set: with these statistics a $chi^2$ test is
-  dominated by statistical fluctuations, whereas a *systematic slope* in
+  dominated by statistical fluctuations, whereas a systematic slope in
   the same-to-mixed ratio is the signature of a genuine shape mismatch.
   Failing bins are written to per-criterion PDF galleries for inspection.],
 ) <tab:mixing-validation>
 
 #important-box(title: "These diagnostics are not wired into the measurement")[
   The validation program runs on LD#sub[2] only and produces plots. Its
-  verdicts *do not feed back* into the multiplicity extraction: no bin is
+  verdicts do not feed back into the multiplicity extraction: no bin is
   rejected, and no systematic band is derived from them. The machinery to
   turn "the subtraction fails here" into an uncertainty exists and is
   unused.

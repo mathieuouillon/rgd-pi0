@@ -22,21 +22,21 @@ Four target configurations enter this note:
     [Cu], [63.5], [nuclear], [Solid foil.],
     [Sn], [118.7], [nuclear], [Solid foil.],
   ),
-  caption: [Target set. *Each run used a single target*: LD#sub[2], CxC and
+  caption: [Target set. Each run used a single target: LD#sub[2], CxC and
   CuSn were taken in separate, non-overlapping runs (@sec:runs), so the ratio
   of @eq:multiplicity compares data recorded at different times. Cu and Sn
   are the exception --- they are two foils in one CuSn assembly, exposed in
-  the *same* runs and separated offline by the electron vertex $v_z$
+  the same runs and separated offline by the electron vertex $v_z$
   (@sec:vertex). Stage A writes one slim file per target.],
 ) <tab:targets>
 
 The Cu/Sn exception is worth keeping in mind when reading @sec:results: of
 the three nuclear-to-deuterium ratios, $R_"Cu"$ and $R_"Sn"$ share their
 running conditions with each other exactly, while $R_"CxC"$ does not share
-them with either. The Cu-to-Sn *comparison* is therefore free of the
+them with either. The Cu-to-Sn comparison is therefore free of the
 run-to-run systematic that afflicts every ratio against LD#sub[2].
 
-*Torus polarity.* Every result in this note comes from *outbending* data
+Torus polarity. Every result in this note comes from outbending data
 only. The run-list filter (@sec:runs) selects the outbending runs; the
 inbending set is present in `config/runs.json` but no production reads it.
 The inbending dataset therefore remains an untapped statistical reserve, and
@@ -59,7 +59,7 @@ detector-systematic handles available; it has not been exercised.
   ),
   caption: [@RGD run lists as recorded in `config/runs.json`. Cu and Sn share
   the `CuSn` run list --- they are two foils in one assembly, separated
-  offline by vertex (@sec:vertex). *These lists are applied*: `pi0.farm`
+  offline by vertex (@sec:vertex). These lists are applied: `pi0.farm`
   refuses any input file whose run is not in the target's list for the
   requested polarity, because the SIDIS-train directory tree holds inbending
   and outbending runs together and the slim schema records no polarity
@@ -68,12 +68,12 @@ detector-systematic handles available; it has not been exercised.
   which enters the outbending production.],
 ) <tab:runs>
 
-The three outbending lists are *pairwise disjoint* --- no run appears under
+The three outbending lists are pairwise disjoint --- no run appears under
 two targets --- confirming that each run carried a single target. Together
 they are $135 + 112 + 268 = 515$ distinct runs spanning 18419--19131.
 
 Ordering those 515 runs and labelling each by its target resolves them into
-*13 contiguous single-target blocks*:
+13 contiguous single-target blocks:
 
 #figure(
   block(inset: (y: 3pt))[
@@ -94,15 +94,15 @@ Ordering those 515 runs and labelling each by its target resolves them into
     )
   ],
   caption: [The outbending running, in run order: target, run span, number of
-  runs. The beam returns to LD#sub[2] *six* times, so the reference is spread
+  runs. The beam returns to LD#sub[2] six times, so the reference is spread
   across the whole period rather than concentrated at one end of it. The
   nuclear blocks are long (40--76 runs), so conditions can drift appreciably
-  *within* a block as well as between blocks.],
+  within a block as well as between blocks.],
 ) <tab:run-blocks>
 
 #result-box(title: "A free systematic probe: six LD₂ blocks")[
   The six separate LD#sub[2] blocks are the most useful thing in
-  @tab:run-blocks. They are the *same target* measured at six points spread
+  @tab:run-blocks. They are the same target measured at six points spread
   across the run period, so any difference between them is pure
   time-dependent systematic --- there is no physics that should make
   deuterium behave differently in April than in June.
@@ -153,8 +153,8 @@ an input it cannot vouch for (@sec:provenance-gaps).
   ],
   caption: [The four processing stages. A--C are C++17 (static library
   `pi0_core` plus the three executables); D is Python (`pi0` package). The
-  division matters for reading this note: *every kinematic cut lives in
-  `config/cuts.json`* and is applied in stages A--C; the Python layer applies
+  division matters for reading this note: every kinematic cut lives in
+  `config/cuts.json` and is applied in stages A--C; the Python layer applies
   no kinematic selection beyond a $m_(gamma gamma)$ window and fit-quality
   gates.],
 ) <tab:dataflow>
@@ -165,14 +165,14 @@ survive. That makes the downstream analysis fast to iterate, at a price
 documented in @sec:skim-cost --- the photon selection is baked in and cannot
 be varied downstream.
 
-*Program freezing.* `pi0.batch` snapshots the executable, its shared
+Program freezing. `pi0.batch` snapshots the executable, its shared
 libraries and the configuration into a per-workflow directory and runs @SWIF2
 jobs against that copy, so a queued workflow is decoupled from ongoing
 development of the source tree.
 
 == Statistics <sec:statistics>
 
-The numbers in @sec:results are a *diagnostic first run* of the whole chain,
+The numbers in @sec:results are a diagnostic first run of the whole chain,
 not the full luminosity: Stage A read only the first $2 times 10^6$ events of
 each of the 95 SIDIS-train files (a few hours on one interactive node), so the
 counts below are a prefix of the available data and carry the truncation
@@ -190,7 +190,7 @@ caveat throughout.
   ),
   caption: [Statistics of the diagnostic run. $N^"DIS"$ is the inclusive
   normalisation of @eq:multiplicity (events read per target); the $pi^0$
-  column is the same-event $gamma gamma$ pairs binned by Stage B, *before*
+  column is the same-event $gamma gamma$ pairs binned by Stage B, before
   background subtraction --- an upper bound on the signal, not a $pi^0$
   count. Under the $2 times 10^6$-event/file cap these total
   $approx 5.5 times 10^6$ @DIS events and $2.5 times 10^6$ $pi^0$ candidates.
@@ -218,27 +218,27 @@ the pieces a published note needs are in the repository rather than on a
 scratch disk.
 
 #result-box(title: "What every result can be traced to")[
-  + *The run list is applied, and recorded.* `config/runs.json` holds the
+  + The run list is applied, and recorded. `config/runs.json` holds the
     @RGD run lists (@tab:runs), and `pi0.farm` filters every input against
     them: a file whose run is not in the requested target/polarity list is
     rejected with a reason. Inbending and outbending runs share one directory
     tree and the slim schema records no polarity, so this filter is what keeps
     the two torus polarities from being silently mixed.
 
-  + *The configuration is committed.* Every threshold lives in
+  + The configuration is committed. Every threshold lives in
     `config/cuts.json`; a cut value appearing in code is a bug. Its SHA-256
     (`801ba433…`) is stamped into every slim, every binned file and every
     result CSV, and each stage refuses to run if the config it loaded is not
     the one its inputs were made with.
 
-  + *The binning is committed and hashed.* `make_grid` writes
+  + The binning is committed and hashed. `make_grid` writes
     `config/binning/grid_{A,B}.json` with a provenance block --- the dataset,
     the targets, the event count and a hash of the edges
     (`provenance_hash 2acf618294a6c3b0` for the grids used here) --- and that
     hash is stamped into every output binned on them. The edges are global,
     quotable and under version control.
 
-  + *Unpublishable inputs are refused, loudly.* Stage A stamps
+  + Unpublishable inputs are refused, loudly. Stage A stamps
     `gbt.fallback_used` and any `--max-events` truncation into its provenance;
     Stage B propagates one `provenance_stageA_NNN` block per input; the Python
     stage reads them and refuses to produce a physics number from a fallback,

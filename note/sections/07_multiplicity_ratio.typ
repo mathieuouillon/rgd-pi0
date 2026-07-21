@@ -14,22 +14,22 @@ always the denominator; CxC, Cu and Sn are three
 independent numerator files sharing one frozen grid, which is what makes the
 bin-by-bin division meaningful.
 
-The @DIS normalisation is integrated over $(Q^2, x_B)$ *only* --- not over
+The @DIS normalisation is integrated over $(Q^2, x_B)$ only --- not over
 $z$ or $p_T^2$. This is the physically correct choice, and it is verifiable
 in the output: all $25$ bins ($5_z times 5_(p_T^2)$) of a given
 $(Q^2, x_B)$ cell carry an identical $N^"DIS"$.
 
 #note-box(title: "What counts as a DIS event")[
-  The @DIS normalisation is filled *once per event* that has a good @DIS
+  The @DIS normalisation is filled once per event that has a good @DIS
   electron --- no photon requirement, no $pi^0$ requirement. It is a
   per-event count, not a per-$pi^0$ count. (A separate `Q2_vs_xB`
-  histogram *is* filled per $pi^0$ candidate and must not be used as a
+  histogram is filled per $pi^0$ candidate and must not be used as a
   normalisation; the two differ by the $pi^0$ multiplicity.)
 ]
 
 == Yield extraction <sec:yield-extraction>
 
-The yield is *not* the integral of a fitted Gaussian. The procedure is:
+The yield is not the integral of a fitted Gaussian. The procedure is:
 
 #figure(
   block(inset: (x: 6pt, y: 4pt))[
@@ -37,16 +37,16 @@ The yield is *not* the integral of a fitted Gaussian. The procedure is:
     #set par(justify: false)
     + Subtract the sideband-scaled mixed spectrum: $S(m)$ from
       @eq:subtraction.
-    + Fit $S(m)$ with a *pure Gaussian* --- no background term, since the
+    + Fit $S(m)$ with a pure Gaussian --- no background term, since the
       background is already gone --- over $[0.08, 0.20]$ GeV.
-    + *Iteratively restrict to the core*: refit over
+    + Iteratively restrict to the core: refit over
       $[mu - 1.5 sigma, mu + 1.5 sigma]$, up to 2 iterations, stopping when
       $mu$ and $sigma$ both change by less than $1%$.
-    + Sum the *subtracted histogram* over
+    + Sum the subtracted histogram over
       $mu plus.minus 3 sigma$: $Y = sum_(m in plus.minus 3 sigma) S(m)$,
       with $sigma_Y^2 = sum sigma_S^2 (m)$.
   ],
-  caption: [Yield extraction. Steps 2--3 exist *only* to locate the
+  caption: [Yield extraction. Steps 2--3 exist only to locate the
   integration window; the fit amplitude never enters the yield. This is a
   deliberate and defensible choice: it makes the yield insensitive to the
   Gaussian's inability to describe the peak's non-Gaussian tails, at the
@@ -65,7 +65,7 @@ $chi^2 \/ "ndf"$ near 1.
 
 == Normalisation <sec:normalisation>
 
-Because $N^"DIS"$ is counted on Grid A --- the *same* $(Q^2, x_B)$ cells the
+Because $N^"DIS"$ is counted on Grid A --- the same $(Q^2, x_B)$ cells the
 numerator bins share (@sec:aux-grids) --- each 4D bin divides by the $N^"DIS"$
 of its own $(Q^2, x_B)$ cell directly. There is no reweighting between two
 different grids and no separable approximation to fail: the denominator is an
@@ -105,10 +105,10 @@ entirely by the yields:
   + The uncertainty on the sideband scale $alpha$ is not propagated
     (@sec:subtraction).
   + The $plus.minus 3 sigma$ window sum ignores the uncertainty on the
-    fitted $mu$ and $sigma$ that *define* the window.
-  + *$R_"CxC"$, $R_"Cu"$ and $R_"Sn"$ are correlated* --- they share the
+    fitted $mu$ and $sigma$ that define the window.
+  + $R_"CxC"$, $R_"Cu"$ and $R_"Sn"$ are correlated --- they share the
     LD#sub[2] numerator yield and @DIS count --- but the code treats them as
-    independent. This does not affect any single $R_A$, but it *does* matter
+    independent. This does not affect any single $R_A$, but it does matter
     for any fit of the $A$-dependence, which is precisely what
     @sec:results-ptb does with $Delta chevron.l p_T^2 chevron.r$. An
     $A$-dependence fit using these errors will understate its own
@@ -118,16 +118,16 @@ entirely by the yields:
 == The no-subtraction cross-check <sec:no-subtraction>
 
 A second variant is produced for every bin: a Gaussian-plus-linear fit to
-the *raw* same-event spectrum, from which $mu$ and $sigma$ are taken and
-the *raw counts* summed over $plus.minus 3 sigma$.
+the raw same-event spectrum, from which $mu$ and $sigma$ are taken and
+the raw counts summed over $plus.minus 3 sigma$.
 
-The fitted linear background is *discarded*, not subtracted. This variant
+The fitted linear background is discarded, not subtracted. This variant
 is therefore not an alternative background subtraction --- it is a
-*background-dilution bound*: a measurement of what $R_A$ would be with no
+background-dilution bound: a measurement of what $R_A$ would be with no
 subtraction at all, which is pulled toward unity by the unsubtracted
 combinatorial background.
 
-It is plotted alongside the nominal but *never differenced into a
-systematic band*, and never written to CSV. Turning the nominal-versus-raw
+It is plotted alongside the nominal but never differenced into a
+systematic band, and never written to CSV. Turning the nominal-versus-raw
 difference into a background systematic is the most obvious immediate
 improvement available: the two variants already exist for every bin.

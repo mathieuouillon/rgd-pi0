@@ -63,7 +63,7 @@ the only current file carrying true per-bin means (@sec:binning-caveat).]
   ),
   caption: [Nuclear sizes, against the hadronization length scale
   $nu \/ kappa approx 5$ fm at $chevron.l nu chevron.r = 5.1$ GeV. The two
-  are *comparable* --- neither limit applies cleanly --- which is what makes
+  are comparable --- neither limit applies cleanly --- which is what makes
   the measurement worth doing and also what makes it hard: energy loss and
   absorption both contribute, and only their different dependence on $z$,
   $nu$ and $A$ separates them. $chevron.l L chevron.r$ is the mean path from
@@ -72,7 +72,7 @@ the only current file carrying true per-bin means (@sec:binning-caveat).]
 
 One consequence for how this note is binned: $nu$ is not an independent
 axis. It is fixed by $Q^2$ and $x_B$ through $nu = Q^2 \/ (2 M_p x_B)$, so
-the $(Q^2, x_B)$ grid of @sec:binning *is* a $nu$ binning, read in a rotated
+the $(Q^2, x_B)$ grid of @sec:binning is a $nu$ binning, read in a rotated
 frame. Since the balance between energy loss and pre-hadron absorption is
 governed by $nu$ --- through the $nu \/ kappa$ of @tab:lengths --- the
 $nu$ dependence is the most direct handle this dataset has on which
@@ -84,21 +84,21 @@ liquid-deuterium cell and a set of solid nuclear foils, over a large
 acceptance and with the statistics documented in @tab:statistics.
 
 #important-box(title: "The targets were not exposed simultaneously")[
-  Each @RGD run used *one* target. The reference and the nuclear foils were
-  taken in *separate runs*, alternating in blocks over the run period
+  Each @RGD run used one target. The reference and the nuclear foils were
+  taken in separate runs, alternating in blocks over the run period
   (@sec:runs) --- there is no run in which LD#sub[2] and a nuclear target
   were exposed together.
 
   This matters for the whole measurement, because the ratio of
-  @eq:multiplicity is then formed from data taken *at different times*, not
+  @eq:multiplicity is then formed from data taken at different times, not
   under identical conditions. Luminosity drift, detector efficiency changes
   and calibration shifts between an LD#sub[2] block and a neighbouring
-  nuclear block do *not* cancel in $R_A$ --- they enter it directly. The
+  nuclear block do not cancel in $R_A$ --- they enter it directly. The
   time-dependent systematics that a simultaneous multi-target exposure would
   have removed are, here, a real and so far unevaluated uncertainty
   (@sec:ratio-cancellation).
 
-  The running was at least *interleaved*: the beam returned to LD#sub[2] six
+  The running was at least interleaved: the beam returned to LD#sub[2] six
   separate times across the period, so the reference samples much the same
   span of running conditions as the nuclear targets rather than sitting at
   one end of it. That averages long-term drift down; it does not cancel it.
@@ -131,7 +131,7 @@ $ R_A^(pi^0) (Q^2, x_B, z, p_T^2)
   = (N_A^(pi^0) (Q^2, x_B, z, p_T^2) \/ N_A^"DIS" (Q^2, x_B))
     / (N_D^(pi^0) (Q^2, x_B, z, p_T^2) \/ N_D^"DIS" (Q^2, x_B)) $ <eq:multiplicity>
 
-Normalising to the @DIS count in the *same* $(Q^2, x_B)$ cell does two
+Normalising to the @DIS count in the same $(Q^2, x_B)$ cell does two
 things, and the second is the important one.
 
 The bookkeeping part is that it removes the integrated luminosity, the beam
@@ -139,12 +139,12 @@ charge and the dead time, provided these are common to the inclusive and
 semi-inclusive samples --- which they are, since both are counted from the
 same events.
 
-The physics part is that it removes the *initial state*. A nucleus is not a
+The physics part is that it removes the initial state. A nucleus is not a
 free collection of nucleons: its quark distributions are modified relative
 to the deuteron by shadowing at low $x_B$, antishadowing, and the EMC effect
 at large $x_B$. Those are initial-state effects and have nothing to do with
-hadronization --- but they change $N_A^(pi^0)$ and $N_A^"DIS"$ *by the same
-factor*, because both are measured on the same nucleus at the same
+hadronization --- but they change $N_A^(pi^0)$ and $N_A^"DIS"$ by the same
+factor, because both are measured on the same nucleus at the same
 $(Q^2, x_B)$ and so sample the same nuclear parton densities. In the ratio
 of ratios they cancel. Writing schematically
 $N_A^h prop f_(q\/A)(x_B, Q^2) times D_(q -> h)^A (z)$ and
@@ -152,7 +152,7 @@ $N_A^"DIS" prop f_(q\/A)(x_B, Q^2)$, the nuclear @PDF drops out and
 
 $ R_A^(pi^0) approx D_(q -> pi^0)^A (z, p_T^2) \/ D_(q -> pi^0)^D (z, p_T^2) , $ <eq:ra-ff>
 
-a ratio of *effective fragmentation functions*. This is what makes $R_A$ a
+a ratio of effective fragmentation functions. This is what makes $R_A$ a
 probe of hadronization rather than of nuclear structure, and it is the
 reason the normalisation must be taken per $(Q^2, x_B)$ cell rather than
 inclusively (@sec:normalisation). The cancellation is exact only to the
@@ -167,7 +167,7 @@ additional soft production.
 
 The medium imparts transverse momentum to the propagating parton through
 multiple soft scattering. Each scattering adds in quadrature, so the
-transverse momentum executes a random walk and the *squared* momentum
+transverse momentum executes a random walk and the squared momentum
 accumulates linearly along the path. The resulting broadening,
 
 $ Delta chevron.l p_T^2 chevron.r = chevron.l p_T^2 chevron.r_A - chevron.l p_T^2 chevron.r_D approx hat(q) dot chevron.l L chevron.r , $ <eq:broadening-intro>
@@ -202,7 +202,7 @@ $phi_h$ bin_, any helicity-independent acceptance cancels exactly, making it
 the most acceptance-robust of the three.
 
 #important-box(title: "Status of this note")[
-  This note documents the analysis *as it is currently implemented*, and is
+  This note documents the analysis as it is currently implemented, and is
   explicit about the difference between what the code computes and what is
   ready to be published. Several observables carry unresolved issues that
   are stated in place rather than deferred to a footnote:
@@ -213,10 +213,10 @@ the most acceptance-robust of the three.
   - the widest bins span a large kinematic range, so they are reported at
     their sideband-subtracted mean rather than their box midpoint, which the
     extraction does by construction (@sec:binning-caveat);
-  - the targets were taken in *separate runs*, so the run-to-run systematic
+  - the targets were taken in separate runs, so the run-to-run systematic
     does not cancel in the ratio and has not been measured
     (@sec:ratio-cancellation);
-  - *no* acceptance, bin-migration, or radiative correction is applied
+  - no acceptance, bin-migration, or radiative correction is applied
     anywhere in the chain, and no systematic uncertainty has been evaluated
     (@sec:systematics).
 
@@ -230,7 +230,7 @@ The qualitative picture --- attenuation growing with $A$ and with $z$, and a
 $p_T$ broadening positive and increasing with $A$ --- is established. What
 is not established is anything quantitative enough to separate partonic
 energy loss from pre-hadron absorption, because that separation lives in the
-*differential* behaviour: how the attenuation evolves with $z$ at fixed
+differential behaviour: how the attenuation evolves with $z$ at fixed
 $nu$, and with $nu$ at fixed $z$. Holding one fixed while scanning the other
 demands both statistics and kinematic granularity.
 

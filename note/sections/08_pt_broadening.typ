@@ -6,16 +6,16 @@
 
 $ Delta chevron.l p_T^2 chevron.r_A = chevron.l p_T^2 chevron.r_A - chevron.l p_T^2 chevron.r_D $ <eq:broadening>
 
-evaluated at matched bin index of the *three-dimensional* $(Q^2, x_B, z)$
+evaluated at matched bin index of the three-dimensional $(Q^2, x_B, z)$
 grid (@tab:trees). The grid is 3D precisely so that $p_T^2$ is the
-*observable* --- averaged within each bin --- rather than a binning
+observable --- averaged within each bin --- rather than a binning
 dimension: one cannot take the mean of a quantity one has binned on.
 
 == Accumulator means <sec:ptb-accumulators>
 
-$chevron.l p_T^2 chevron.r$ is a plain accumulator mean --- *no fit, no
-exponential model, no truncation, no $p_T^2$ range cut*. Stage B fills the
-`ptb3d` tree with, for each 3D bin $k$ *and each $m_(gamma gamma)$ bin*,
+$chevron.l p_T^2 chevron.r$ is a plain accumulator mean --- no fit, no
+exponential model, no truncation, no $p_T^2$ range cut. Stage B fills the
+`ptb3d` tree with, for each 3D bin $k$ and each $m_(gamma gamma)$ bin,
 
 $ H_"counts" [k] = N_k , quad
   H_(sum p_T^2) [k] = sum_(i in k) p_(T,i)^2 , quad
@@ -46,11 +46,11 @@ targets.
 
 == Background handling <sec:ptb-caveat>
 
-The $p_T^2$ moments are accumulated from the $pi^0$ *candidate* collection ---
+The $p_T^2$ moments are accumulated from the $pi^0$ candidate collection ---
 the greedy-paired, mass-windowed sample of @sec:pairing, which spans the full
 `pairing.mass_window_gev` of `config/cuts.json` and so is mostly combinatorial. The
 key improvement over a naive average is that the moments are binned in
-$m_(gamma gamma)$ (@eq:ptb-accum), so the *same* sideband subtraction used for
+$m_(gamma gamma)$ (@eq:ptb-accum), so the same sideband subtraction used for
 the yields (@sec:subtraction) is applied to them:
 $chevron.l p_T^2 chevron.r$ is reported over the sideband-subtracted signal
 region, not the raw window.
@@ -59,9 +59,9 @@ region, not the raw window.
   Sideband subtraction removes the flat combinatorial background under the
   peak, but where the signal fraction is low the subtracted moment still
   carries a statistical penalty and some residual shape sensitivity. The
-  *difference* @eq:broadening cancels whatever remains to the extent that it is
+  difference @eq:broadening cancels whatever remains to the extent that it is
   target-independent, and the measured $Delta chevron.l p_T^2 chevron.r$ is
   positive, monotonic in $A$ and of a sensible magnitude (@sec:results-ptb).
-  What is *not* yet done is a systematic on the residual: varying the sideband
+  What is not yet done is a systematic on the residual: varying the sideband
   and the window into a band (@tab:systematics).
 ]

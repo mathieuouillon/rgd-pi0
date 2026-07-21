@@ -3,19 +3,19 @@
 = Current results <sec:results>
 
 #important-box(title: "First end-to-end run of the rewritten pipeline — diagnostic only")[
-  Every number in this section is the *first* output of the rewritten
+  Every number in this section is the first output of the rewritten
   Stage A $arrow$ `make_grid` $arrow$ Stage B $arrow$ Stage C chain run end to
-  end on data. It is *diagnostic only* --- three independent blockers forbid
+  end on data. It is diagnostic only --- three independent blockers forbid
   quoting any of it, and each is stamped into the result files:
 
-  - *Photon fallback.* No GBT model covers @RGD, so photons were scored by the
+  - Photon fallback. No GBT model covers @RGD, so photons were scored by the
     @RGA inbending model (`gbt.fallback_used = TRUE`). The photon sample is not
     the one the cuts describe.
-  - *Truncated statistics.* Stage A read only the first $2 times 10^6$ events
+  - Truncated statistics. Stage A read only the first $2 times 10^6$ events
     of each of the $95$ SIDIS-train files, so $N_"DIS"$ --- the normalisation
     denominator --- is a prefix of each run and every yield carries
     `--allow-truncated-inputs`.
-  - *No systematics.* Errors are statistical only and correlated through the
+  - No systematics. Errors are statistical only and correlated through the
     shared LD#sub[2] reference (@sec:ra-uncertainties); no acceptance, bin
     migration, radiative or evaluated systematic is applied (@sec:systematics).
 
@@ -23,7 +23,7 @@
   $pi^0$ candidates over the factorised $8 times 7$ $(Q^2, x_B) times 5 times
   5$ $(z, p_T^2)$ grid (`provenance_hash 2acf618294a6c3b0`,
   `cuts.sha256 801ba433…`). It is shown because it exercises the whole chain
-  and is *informative about the state of the analysis*, not because it is
+  and is informative about the state of the analysis, not because it is
   ready to circulate.
 ]
 
@@ -78,12 +78,12 @@ A power-law fit of the weighted values against $A$ gives
 
 $ Delta chevron.l p_T^2 chevron.r prop A^(0.475) , $ <eq:A-scaling>
 
-*above* the $A^(1\/3)$ of @eq:A13 expected if $hat(q)$ is a fixed property of
+above the $A^(1\/3)$ of @eq:A13 expected if $hat(q)$ is a fixed property of
 the medium, and consistent with the earlier analysis's $A^(0.43)$.
 
 #warning-box(title: "Do not over-interpret the exponent")[
   @eq:A-scaling is a three-point fit on statistical errors that are
-  *underestimated in a correlated way*: the three targets share the LD#sub[2]
+  underestimated in a correlated way: the three targets share the LD#sub[2]
   reference and that correlation is not modelled (@sec:ra-uncertainties). The
   $p_T^2$ moments are accumulated over a background-dominated sample
   (@sec:ptb-caveat), which pulls $Delta chevron.l p_T^2 chevron.r$ toward zero
@@ -116,7 +116,7 @@ the medium, and consistent with the earlier analysis's $A^(0.43)$.
   caption: [$R_A$ vs the sideband-subtracted $chevron.l z chevron.r$,
   inverse-variance weighted over the $approx 810$ surviving 4D bins per
   target, statistical errors only. The bottom row is the average over all
-  bins. The top-bin $chevron.l z chevron.r = 0.53$ is the *true mean* of the
+  bins. The top-bin $chevron.l z chevron.r = 0.53$ is the true mean of the
   wide top $z$ box $[0.37, 1.0]$, not its midpoint (@sec:binning-caveat).],
 ) <tab:R-vs-z>
 
@@ -142,14 +142,14 @@ attenuation, with the qualitative shape expected of nuclear hadronization:
 )
 
 #warning-box(title: "Weighted mean and median disagree — read before quoting R_A")[
-  The attenuation above is in the *inverse-variance weighted* mean. The
-  *median* $R$ over the same bins is $0.99$ (C), $0.95$ (Cu), $0.97$ (Sn)
+  The attenuation above is in the inverse-variance weighted mean. The
+  median $R$ over the same bins is $0.99$ (C), $0.95$ (Cu), $0.97$ (Sn)
   --- consistent with unity. The two disagree because the suppression lives in
   the high-statistics bins that dominate the weighted mean, while the many
   thin, noisy bins scatter symmetrically about one and dominate the median.
   With this note's own caution about weighted averages in mind (the @BSA
-  section makes the same point), the $R_A$ signal is *suggestive, not
-  established*: the ordering above C is not resolved ($R_"Cu" approx R_"Sn"$),
+  section makes the same point), the $R_A$ signal is suggestive, not
+  established: the ordering above C is not resolved ($R_"Cu" approx R_"Sn"$),
   and the whole picture rests on error weights from a truncated,
   background-subtracted, fallback-photon sample. More statistics --- and a $z$
   binning that resolves the top box rather than folding $z in [0.37, 1.0]$ into

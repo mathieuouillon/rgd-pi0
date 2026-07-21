@@ -43,7 +43,7 @@ Cu and Sn alike.
     )),
   ),
   [Sampling-fraction parameters for both torus polarities. Only the
-  *Outbending* block is used by the results in this note
+  Outbending block is used by the results in this note
   (@sec:targets).],
   <tab:sf-params>,
 )
@@ -63,7 +63,7 @@ For completeness; unused here, since only outbending data is analysed.
   ),
   caption: [Inbending vertex peaks, in cm. The cut is
   $|v_z^"corr" - mu| < 3 sigma$. As in @tab:vz, `lo`/`hi` name the
-  parameter set, not the $z$ ordering: the `hi` peak is the *upstream*
+  parameter set, not the $z$ ordering: the `hi` peak is the upstream
   (more negative) foil. Sn is the $-2.8$ peak, Cu the $-7.8$ peak.],
 ) <tab:vz-inbending>
 
@@ -77,7 +77,7 @@ downstream by `uproot` without ROOT.
     columns: (auto, auto, 1fr),
     align: (left, center, left),
     table.header([*Branch*], [*Type*], [*Meaning*]),
-    table.cell(colspan: 3)[*Per event* --- scalar branches],
+    table.cell(colspan: 3)[Per event --- scalar branches],
     [`run`], [`int`], [Run number, from `RUN::config`],
     [`helicity`], [`int`], [Beam helicity, HWP-corrected, $plus.minus 1$
       ($0$ = undefined)],
@@ -85,12 +85,12 @@ downstream by `uproot` without ROOT.
       (@eq:Q2 -- @eq:xB)],
     [`ex`, `ey`, `ez`, `ee`], [`double`], [Trigger electron $p_x, p_y, p_z, E$
       (GeV)],
-    table.cell(colspan: 3)[*Per photon* --- variable-length array branches],
+    table.cell(colspan: 3)[Per photon --- variable-length array branches],
     [`gpx`, `gpy`, `gpz`], [`double[]`], [Selected photon momenta (GeV)],
     [`g_e_gamma_deg`], [`double[]`], [Each photon's angle to the scattered
       electron (deg)],
   ),
-  caption: [The slim `events` tree. It carries *no* per-photon PID, status,
+  caption: [The slim `events` tree. It carries no per-photon PID, status,
   $beta$ or vertex --- the @GBT, fiducial and $beta$ selections are already
   applied and cannot be varied downstream (@sec:skim-cost). The skim keeps
   events with $>= 1$ photon even though $pi^0$ reconstruction needs $>= 2$,
@@ -104,7 +104,7 @@ regardless of the `--threads` value.
 
 = Unbinned maximum-likelihood method <sec:appendix-mlm>
 
-Documented for reference; *not currently used* --- the production @BSA uses
+Documented for reference; not currently used --- the production @BSA uses
 the binned $chi^2$ fit of @eq:bsa-model.
 
 As an alternative to binning in $phi_h$, the amplitudes can be extracted
@@ -138,12 +138,12 @@ acceptance-insensitive --- the same argument that protects the binned
 $A_"LU"$ (@sec:bsa-definition).
 
 #note-box(title: "Caveat inherited from the binned fit")[
-  @eq:mlm-alu is the *three-parameter ratio form*, which
+  @eq:mlm-alu is the three-parameter ratio form, which
   @sec:bsa-fit records as having been abandoned for exactly the reason that
   matters here: at these per-leaf statistics its denominator develops pole
   pathologies. An unbinned fit does not by itself cure that --- it uses the
   same functional form. The likelihood approach is worth revisiting
-  *together with* a decision about whether $B$ and $C$ should be fitted at
+  together with a decision about whether $B$ and $C$ should be fitted at
   all, or fixed externally.
 ]
 
@@ -165,7 +165,7 @@ ROOT.
        $n_"3D" times n_"mgg"$ rows],
     [`n_dis`], [`cell_a`, `n_dis` --- one row per Grid A cell],
     [`bsa`],
-      [`bin4d`, `imgg`, `iphi`, `helicity`, `counts` --- *sparse*
+      [`bin4d`, `imgg`, `iphi`, `helicity`, `counts` --- sparse
        (zero-count cells omitted); decode via the index columns],
   ),
   caption: [Stage B binned-file schema. The `sum_*` columns are the

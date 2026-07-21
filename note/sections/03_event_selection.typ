@@ -7,14 +7,14 @@ kinematics, photon identification --- all of them in the C++ skim. Nothing
 downstream can loosen them.
 
 #note-box(title: "Provenance of the distributions in this section")[
-  The figures throughout @sec:event-selection are *illustrative*: they apply
+  The figures throughout @sec:event-selection are illustrative: they apply
   the selection documented here to a single LD#sub[2] run (18431), truncated to
-  its first $150 000$ events. That is enough to show the *shape* of each cut and
+  its first $150 000$ events. That is enough to show the shape of each cut and
   what it removes, and nothing more --- it is one run of one target, not the
   production sample, so no rate, ratio or efficiency may be read from it. The
   photons in particular are classified by the @RGA fallback model
   (@sec:photon-id), so none of these figures is a photon-efficiency measurement.
-  The "accepted" / "rejected" populations are shown at the *candidate* level,
+  The "accepted" / "rejected" populations are shown at the candidate level,
   before and after the cut under discussion.
 ]
 
@@ -32,7 +32,7 @@ $"pid" = 11$, $"status" < 0$, $2000 <= |"status"| < 4000$ (i.e.\ in the
     align: (left, left, left),
     table.header([*Cut*], [*Value*], [*Comment*]),
     [$chi^2_"PID"$], [$-5 < chi^2_"PID" < 5$], [Standard @EB PID quality.],
-    [Momentum], [$p > 2.0$ GeV], [See the warning below --- *not* $0.8$ GeV.],
+    [Momentum], [$p > 2.0$ GeV], [See the warning below --- not $0.8$ GeV.],
     [Vertex $z$], [target-dependent], [@sec:vertex.],
     [@SF], [$mu(p) plus.minus 3.5 sigma(p)$], [Per sector, per polarity;
       @eq:sf.],
@@ -42,8 +42,8 @@ $"pid" = 11$, $"status" < 0$, $2000 <= |"status"| < 4000$ (i.e.\ in the
       [`REC::Traj` edge distance, layers 6 / 18 / 36.],
   ),
   caption: [Electron selection, applied in this order with short-circuit
-  evaluation. All comparisons are strict. There is *no* @ECAL (ECIN/ECOUT)
-  fiducial cut, *no* polar-angle cut, and *no* @HTCC photoelectron cut ---
+  evaluation. All comparisons are strict. There is no @ECAL (ECIN/ECOUT)
+  fiducial cut, no polar-angle cut, and no @HTCC photoelectron cut ---
   the @PCAL $l_v \/ l_w$ pair is the only calorimeter fiducial, and the
   @SF cut is the only $e\/pi$ separation.],
 ) <tab:electron-cuts>
@@ -52,7 +52,7 @@ $"pid" = 11$, $"status" < 0$, $2000 <= |"status"| < 4000$ (i.e.\ in the
   "../figures/sel_electron_cutflow.pdf",
   [Where trigger electrons are lost, in the order the cuts run
   (@tab:electron-cuts), with short-circuit evaluation --- so each bar counts
-  only the candidates a cut is the *first* to reject. The momentum cut
+  only the candidates a cut is the first to reject. The momentum cut
   dominates at its $2.0$ GeV threshold. The @PCAL fiducial removes almost
   nothing at the loose $9$ cm level; the sampling-fraction and @DC edge cuts
   trim the tails.],
@@ -90,7 +90,7 @@ sector and polarity, applied to LD#sub[2], C, Cu and Sn alike.
 
 == Vertex and target separation <sec:vertex>
 
-The vertex cut both selects the target and, for the solid foils, *defines*
+The vertex cut both selects the target and, for the solid foils, defines
 which nucleus the event belongs to. Cu and Sn are two foils in one
 assembly; they are distinguished only by $v_z$.
 
@@ -112,7 +112,7 @@ $ |v_z^"corr" - mu| < 3.0 sigma . $ <eq:vz>
     [CxC], [corrected, either peak], [$-7.887$ / $-2.906$],
       [union of both $plus.minus 3 sigma$],
   ),
-  caption: [Vertex windows for *outbending* running, the only polarity used
+  caption: [Vertex windows for outbending running, the only polarity used
   here. Widths are $sigma = 0.415$ (Cu), $0.370$ (Sn), $0.395 \/ 0.373$
   (CxC). The CxC target is two carbon
   foils occupying the same two $z$ slots as the Cu and Sn foils, which is
@@ -121,13 +121,13 @@ $ |v_z^"corr" - mu| < 3.0 sigma . $ <eq:vz>
 ) <tab:vz>
 
 #note-box(title: "Two naming traps in the vertex code")[
-  + The internal names `lo`/`hi` refer to the *peak parameter set*, not to
-    the $z$ ordering: `mu_hi` $= -7.861$ is the *more negative*, i.e.\
+  + The internal names `lo`/`hi` refer to the peak parameter set, not to
+    the $z$ ordering: `mu_hi` $= -7.861$ is the more negative, i.e.\
     further upstream, position. The doc-comment calling the `hi` peak
     "downstream" is backwards. The code's assignment (Cu $arrow.l.r -7.86$,
     Sn $arrow.l.r -2.92$) is self-consistent and agrees with the legacy
     lookup table; trust the numbers, not the prose.
-  + The service *overrides* the peak parameters read from the parameter
+  + The service overrides the peak parameters read from the parameter
     file with hard-coded values --- e.g.\ the file gives
     $sigma_"hi" = 0.385$ for CuSn outbending where the service uses
     $0.415$, an $8%$ difference. The correction polynomials come from the
@@ -136,7 +136,7 @@ $ |v_z^"corr" - mu| < 3.0 sigma . $ <eq:vz>
 ]
 
 A separate, legacy raw-$v_z$ table exists and is used by the standalone
-`electron_analysis` binary. It is *not* the $pi^0$ path, and for the solid
+`electron_analysis` binary. It is not the $pi^0$ path, and for the solid
 targets it gives materially different windows. Do not use
 `electron_analysis` as a proxy for this analysis's electron selection.
 
@@ -145,7 +145,7 @@ targets it gives materially different windows. Do not use
   [Corrected electron vertex for the LD#sub[2] run, log scale. The accepted
   band (blue) drops sharply at the raw LD#sub[2] window edges $(-15, 5)$ cm
   (@tab:vz, dotted); the Cu ($plus.minus 3 sigma$ about $-7.86$) and Sn (about
-  $-2.92$) windows are overlaid to show they are *disjoint* --- for the solid
+  $-2.92$) windows are overlaid to show they are disjoint --- for the solid
   targets $v_z$ alone assigns the nucleus, so the two foils never share an
   event. The tails beyond the axis ($4.8%$, annotated) are misreconstructed
   tracks. For LD#sub[2] the correction is disabled, so this is the raw $v_z$.],
@@ -156,7 +156,7 @@ targets it gives materially different windows. Do not use
 == DIS kinematics <sec:dis>
 
 @DIS variables are computed from the scattered electron against a
-*stationary proton*, for every target:
+stationary proton, for every target:
 
 $ Q^2 = 4 E_"beam" E'_e sin^2 (theta_e \/ 2) , $ <eq:Q2>
 $ nu = E_"beam" - E'_e , quad y = nu \/ E_"beam" , $ <eq:nu>
@@ -165,7 +165,7 @@ $ x_B = Q^2 / (2 M_p nu) , quad W = sqrt((q + P_"target")^2) . $ <eq:xB>
 with $M_p = 0.938272$ GeV and $E_"beam" = 10.53$ GeV. Two implementation
 details are worth stating because they are inherited rather than chosen:
 $Q^2$ uses the massless/angle form rather than $-(k - k')^2$ (equivalent to
-better than the resolution at these energies), and $x_B$ uses the *proton*
+better than the resolution at these energies), and $x_B$ uses the proton
 mass for the nuclear targets too --- conventional for multiplicity ratios,
 where the per-nucleon variable is what cancels, but worth stating
 explicitly.
@@ -192,11 +192,11 @@ explicitly.
     ("../figures/sel_dis_phase_space.pdf", [$Q^2$ versus $x_B$, with the three cuts drawn as the boundaries they are.]),
     ("../figures/sel_electron_kinematics.pdf", [Scattered-electron $p$ versus $theta_e$, with the $p > 2$ GeV cut.]),
   ),
-  [The @DIS acceptance of the accepted sample. *Left:* the $W = 2$ GeV and
+  [The @DIS acceptance of the accepted sample. Left: the $W = 2$ GeV and
   $y = 0.85$ cuts are curves in the $(x_B, Q^2)$ plane, not axis limits, and
   the events fill exactly the wedge between them and $Q^2 > 1$; the strong
   $Q^2$--$x_B$ correlation is why the factorized grid's corner cells are left
-  empty by construction (@sec:binning). *Right:* the accepted
+  empty by construction (@sec:binning). Right: the accepted
   electrons sit above $p > 2$ GeV along the usual @DIS $p$--$theta$ band.],
   <fig:sel-dis>,
 )
@@ -237,12 +237,12 @@ rather than by cut-based identification.
   caption: [Photon selection. The energy, @PCAL energy and polar-angle
   requirements sit inside the classifier's purity pre-filter, so they apply
   only on the AI path --- which is the production path. Photon energy is
-  taken as $E_gamma = |arrow(p)_gamma|$ (massless). There is *no* timing
+  taken as $E_gamma = |arrow(p)_gamma|$ (massless). There is no timing
   cut anywhere in the $pi^0$ chain; $beta$ is the only timing-derived
   handle.],
 ) <tab:photon-cuts>
 
-The classifier takes a *45*-component feature vector: seven variables for
+The classifier takes a 45-component feature vector: seven variables for
 the candidate itself ($E_gamma$, $E_"PCAL"$, $theta$, the shower second
 moments $m_(2u)$ and $m_(2v)$, and the angular distance and energy
 difference to the scattered electron), then five variables --- angular
@@ -265,7 +265,7 @@ that a simple energy threshold cannot.
     ]
   ]
 
-  @RGD runs span *18305--19131* (@tab:runs) and therefore match *no*
+  @RGD runs span 18305--19131 (@tab:runs) and therefore match no
   entry. The lookup falls through to a silent default:
 
   #align(center)[
@@ -274,13 +274,13 @@ that a simple energy threshold cannot.
     ]
   ]
 
-  So *every RG-D photon in this analysis --- outbending data, nuclear
+  So every RG-D photon in this analysis --- outbending data, nuclear
   targets --- is identified by a model trained on RG-A inbending pass-1
-  data.* No warning is logged. The pass index is likewise hard-coded to 1
+  data. No warning is logged. The pass index is likewise hard-coded to 1
   and never set from the configuration.
 
   This is the single largest known systematic on the photon efficiency, and
-  it is entirely unquantified. It does not obviously bias the *ratio*
+  it is entirely unquantified. It does not obviously bias the ratio
   $R_A$, since the same model is applied to every target and the efficiency
   should cancel to first order --- but that cancellation is an assumption,
   not a measurement, and it fails to the extent that photon efficiency
@@ -298,8 +298,8 @@ that a simple energy threshold cannot.
   (energy, @PCAL energy, polar angle) are never scored and are counted in the
   title, not drawn at a false zero. Of the $15\,841$ clusters above threshold, a
   further $~1700$ are removed by the later $beta$ and $14$ cm @PCAL fiducial
-  cuts (@tab:photon-cuts), so $14\,127$ photons enter the slim. *This is the
-  @RGA fallback model applied to @RGD data* (see the box above); the clean
+  cuts (@tab:photon-cuts), so $14\,127$ photons enter the slim. This is the
+  @RGA fallback model applied to @RGD data (see the box above); the clean
   separation shown here is the model's behaviour on data it was not trained on,
   not evidence that it is correct for @RGD.],
   <fig:sel-gbt>,
@@ -308,9 +308,9 @@ that a simple energy threshold cannot.
 
 #wide-figure(
   "../figures/sel_photon.pdf",
-  [Selected photons. *Left:* the energy spectrum, falling steeply from the
-  $0.2$ GeV pre-filter floor. *Centre:* the polar angle, spanning the
-  $5degree$--$35degree$ forward-detector window. *Right:* the angle to the
+  [Selected photons. Left: the energy spectrum, falling steeply from the
+  $0.2$ GeV pre-filter floor. Centre: the polar angle, spanning the
+  $5degree$--$35degree$ forward-detector window. Right: the angle to the
   scattered electron; the $theta_(e gamma) > 8degree$ pair-level cut
   (@sec:pair-cuts) removes the small population overlapping the electron, and
   is drawn here even though it is applied at pairing rather than in the skim.],
@@ -325,7 +325,7 @@ kinematics plus the trigger electron, and the four-momenta of the selected
 photons. This is a $~100 times$ reduction and it is what makes the
 downstream iteration fast.
 
-The price is that *the photon selection is frozen*. The skim carries no
+The price is that the photon selection is frozen. The skim carries no
 PID, status, $beta$ or vertex column for photons, so the downstream
 analysis cannot re-cut or vary them. Re-tuning the AI threshold, the
 $beta$ window or the @PCAL fiducial --- each of which is a systematic that

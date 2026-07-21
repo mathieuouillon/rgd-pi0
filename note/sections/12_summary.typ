@@ -6,7 +6,7 @@
 
 Neutral pions are reconstructed via $pi^0 -> gamma gamma$ in @RGD
 outbending data at $E_"beam" = 10.53$ GeV, on an LD#sub[2] / CxC / Cu / Sn
-target set taken in *separate, block-alternating runs* (@sec:runs). A C++17
+target set taken in separate, block-alternating runs (@sec:runs). A C++17
 skim (`stageA_skim`) applies electron, @DIS and AI-based photon selection and
 reduces the data $approx 100 times$; `make_grid` freezes a factorized
 equal-statistics $(Q^2, x_B) times (z, p_T^2)$ grid (@sec:binning); a second
@@ -23,7 +23,7 @@ $(Q^2, x_B)$ cell), the $p_T$-broadening $Delta chevron.l p_T^2 chevron.r$
 $A_"LU"^(sin phi_h)$ (single-parameter $sin phi_h$ fit).
 
 The chain has been run end to end on real data for the first time
-(@sec:results). That run is *diagnostic*: it read a $2 times 10^6$-event
+(@sec:results). That run is diagnostic: it read a $2 times 10^6$-event
 prefix of each SIDIS-train file, and its photons carry the @RGA fallback of
 @sec:photon-id, so no number from it may be quoted. What it establishes is that
 the machinery is correct --- the $p_T$ broadening comes out positive,
@@ -46,7 +46,7 @@ reconstruction.
       [@sec:statistics],
     [Photon-ID model],
       [@RGD runs fall outside every GBT model range; all photons are classified
-       by an @RGA *inbending* pass-1 fallback. The single largest photon
+       by an @RGA inbending pass-1 fallback. The single largest photon
        systematic, and unquantified.],
       [@sec:photon-id],
     [No systematics],
@@ -58,7 +58,7 @@ reconstruction.
        $A_"LU"$ is not yet extracted.],
       [@sec:bsa-polarization],
     [Run-to-run drift],
-      [The targets were taken in *separate runs*, so nothing time-dependent
+      [The targets were taken in separate runs, so nothing time-dependent
        cancels in $R_A$. Plausibly the dominant systematic, and measurable
        today from the six LD#sub[2] blocks.],
       [@sec:ratio-cancellation],
@@ -75,22 +75,22 @@ reconstruction.
 
 == Recommended next steps <sec:outlook>
 
-*Immediate --- no new data.*
+Immediate --- no new data.
 
-+ *Run the full-luminosity production.* Remove the $2 times 10^6$-event cap
++ Run the full-luminosity production. Remove the $2 times 10^6$-event cap
   and skim the complete SIDIS train; this is the same command with a larger
   budget and is what turns the diagnostic ratios into a statistics-limited
   measurement.
-+ *Measure the run-to-run systematic* from the six LD#sub[2] blocks of
++ Measure the run-to-run systematic from the six LD#sub[2] blocks of
   @tab:run-blocks. Same target, six times across the period: any difference is
   pure time-dependent systematic. This is the largest blank in
   @tab:systematics and the cheapest thing on this list.
 + Difference the subtracted and no-subtraction $R_A$ variants into a first
   background systematic (@sec:no-subtraction).
 
-*Short term --- small code or data changes.*
+Short term --- small code or data changes.
 
-+ *Project $R_A$ against $nu = Q^2 \/ (2 M_p x_B)$* at fixed $z$. The
++ Project $R_A$ against $nu = Q^2 \/ (2 M_p x_B)$ at fixed $z$. The
   $(Q^2, x_B)$ grid already contains it (@sec:why-kinematics), so this needs
   no new data, no new binning and no simulation --- and at
   $chevron.l nu chevron.r approx 5.1$ GeV, where $nu \/ kappa$ is comparable
@@ -101,15 +101,15 @@ reconstruction.
 + Vary the sideband, the mass window and the integration window into a
   systematic band.
 
-*Medium term.*
+Medium term.
 
-+ *Commission an @RGD photon-ID model*, or measure the photon efficiency from
++ Commission an @RGD photon-ID model, or measure the photon efficiency from
   data, and re-skim --- this is the highest-value fix, since it removes the
   single largest unquantified photon systematic.
 + Run the inbending dataset --- both for statistics and as the
   detector-systematic cross-check the analysis currently lacks entirely.
 
-*Longer term.*
+Longer term.
 
 + Build the @MC chain for acceptance, bin-migration and radiative
   corrections. This is the largest remaining piece and the one that turns
@@ -128,7 +128,7 @@ $phi_h$ convention is verifiably Trento, and the whole chain now runs end to
 end on data with a provenance guard that refuses to quote what it should not.
 
 The gap between that infrastructure and a publishable measurement is almost
-entirely in *statistics, correction and validation*, not in reconstruction.
+entirely in statistics, correction and validation, not in reconstruction.
 That is a comfortable position to be in --- but the gap is wide. The diagnostic
 run must be replaced by a full-luminosity production before any yield is a
 number; the photon-ID fallback must be closed before the photon efficiency is
