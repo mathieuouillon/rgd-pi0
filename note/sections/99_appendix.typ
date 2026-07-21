@@ -77,7 +77,7 @@ downstream by `uproot` without ROOT.
     columns: (auto, auto, 1fr),
     align: (left, center, left),
     table.header([*Branch*], [*Type*], [*Meaning*]),
-    table.cell(colspan: 3)[Per event --- scalar branches],
+    table.cell(colspan: 3)[Per event, scalar branches],
     [`run`], [`int`], [Run number, from `RUN::config`],
     [`helicity`], [`int`], [Beam helicity, HWP-corrected, $plus.minus 1$
       ($0$ = undefined)],
@@ -85,13 +85,13 @@ downstream by `uproot` without ROOT.
       (@eq:Q2 -- @eq:xB)],
     [`ex`, `ey`, `ez`, `ee`], [`double`], [Trigger electron $p_x, p_y, p_z, E$
       (GeV)],
-    table.cell(colspan: 3)[Per photon --- variable-length array branches],
+    table.cell(colspan: 3)[Per photon, variable-length array branches],
     [`gpx`, `gpy`, `gpz`], [`double[]`], [Selected photon momenta (GeV)],
     [`g_e_gamma_deg`], [`double[]`], [Each photon's angle to the scattered
       electron (deg)],
   ),
   caption: [The slim `events` tree. It carries no per-photon PID, status,
-  $beta$ or vertex --- the @GBT, fiducial and $beta$ selections are already
+  $beta$ or vertex, the @GBT, fiducial and $beta$ selections are already
   applied and cannot be varied downstream (@sec:skim-cost). The skim keeps
   events with $>= 1$ photon even though $pi^0$ reconstruction needs $>= 2$,
   deliberately: single-photon events still feed the event-mixing pool. The
@@ -104,13 +104,13 @@ regardless of the `--threads` value.
 
 = Unbinned maximum-likelihood method <sec:appendix-mlm>
 
-Documented for reference; not currently used --- the production @BSA uses
+Documented for reference; not currently used, the production @BSA uses
 the binned $chi^2$ fit of @eq:bsa-model.
 
 As an alternative to binning in $phi_h$, the amplitudes can be extracted
 from an unbinned likelihood using every event individually. This removes
 any dependence on the $phi_h$ binning and makes optimal use of the
-statistics --- an advantage in sparsely populated four-dimensional leaves.
+statistics, an advantage in sparsely populated four-dimensional leaves.
 
 For a longitudinally polarised beam on an unpolarised target, the
 probability for event $i$ with azimuth $phi_(h,i)$ and helicity
@@ -134,14 +134,14 @@ minimum.
 Because the unpolarised $phi_h$-dependent terms appear identically for both
 helicity states, the acceptance largely cancels in the helicity-difference
 probability, so the extracted amplitudes are to first order
-acceptance-insensitive --- the same argument that protects the binned
+acceptance-insensitive, the same argument that protects the binned
 $A_"LU"$ (@sec:bsa-definition).
 
 #note-box(title: "Caveat inherited from the binned fit")[
   @eq:mlm-alu is the three-parameter ratio form, which
   @sec:bsa-fit records as having been abandoned for exactly the reason that
   matters here: at these per-leaf statistics its denominator develops pole
-  pathologies. An unbinned fit does not by itself cure that --- it uses the
+  pathologies. An unbinned fit does not by itself cure that; it uses the
   same functional form. The likelihood approach is worth revisiting
   together with a decision about whether $B$ and $C$ should be fitted at
   all, or fixed externally.
@@ -159,13 +159,13 @@ ROOT.
     table.header([*Tree*], [*Columns (dense unless noted)*]),
     [`spectra`],
       [`bin4d`, `imgg`, `n_same`, `n_mixed`, `sum_q2`, `sum_xb`, `sum_z`,
-       `sum_pt2` --- $n_"4D" times n_"mgg"$ rows],
+       `sum_pt2` ($n_"4D" times n_"mgg"$ rows],
     [`ptb3d`],
-      [`bin3d`, `imgg`, `counts`, `sum_pt2`, `sum_pt4` ---
+      [`bin3d`, `imgg`, `counts`, `sum_pt2`, `sum_pt4`)
        $n_"3D" times n_"mgg"$ rows],
-    [`n_dis`], [`cell_a`, `n_dis` --- one row per Grid A cell],
+    [`n_dis`], [`cell_a`, `n_dis` (one row per Grid A cell],
     [`bsa`],
-      [`bin4d`, `imgg`, `iphi`, `helicity`, `counts` --- sparse
+      [`bin4d`, `imgg`, `iphi`, `helicity`, `counts`) sparse
        (zero-count cells omitted); decode via the index columns],
   ),
   caption: [Stage B binned-file schema. The `sum_*` columns are the
@@ -182,5 +182,5 @@ columns:
   `Y_A, sY_A, Y_D, sY_D`; `N_DIS_A, N_DIS_D`; and `R, sR`.
 / `broadening_<T>.csv`: `bin3d, i_q2, i_xb, i_z`; `pt2_A, spt2_A, pt2_D,
   spt2_D`; `delta, sdelta`.
-/ `bsa_<T>.csv`: per 4D bin, `A, A_err, chi2, ndof, n` --- written once a
+/ `bsa_<T>.csv`: per 4D bin, `A, A_err, chi2, ndof, n`, written once a
   measured polarization is supplied (@sec:bsa-polarization).

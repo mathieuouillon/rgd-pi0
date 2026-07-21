@@ -14,14 +14,14 @@ always the denominator; CxC, Cu and Sn are three
 independent numerator files sharing one frozen grid, which is what makes the
 bin-by-bin division meaningful.
 
-The @DIS normalisation is integrated over $(Q^2, x_B)$ only --- not over
+The @DIS normalisation is integrated over $(Q^2, x_B)$ only, not over
 $z$ or $p_T^2$. This is the physically correct choice, and it is verifiable
 in the output: all $25$ bins ($5_z times 5_(p_T^2)$) of a given
 $(Q^2, x_B)$ cell carry an identical $N^"DIS"$.
 
 #note-box(title: "What counts as a DIS event")[
   The @DIS normalisation is filled once per event that has a good @DIS
-  electron --- no photon requirement, no $pi^0$ requirement. It is a
+  electron; no photon requirement, no $pi^0$ requirement. It is a
   per-event count, not a per-$pi^0$ count. (A separate `Q2_vs_xB`
   histogram is filled per $pi^0$ candidate and must not be used as a
   normalisation; the two differ by the $pi^0$ multiplicity.)
@@ -37,8 +37,8 @@ The yield is not the integral of a fitted Gaussian. The procedure is:
     #set par(justify: false)
     + Subtract the sideband-scaled mixed spectrum: $S(m)$ from
       @eq:subtraction.
-    + Fit $S(m)$ with a pure Gaussian --- no background term, since the
-      background is already gone --- over $[0.08, 0.20]$ GeV.
+    + Fit $S(m)$ with a pure Gaussian (no background term, since the
+      background is already gone) over $[0.08, 0.20]$ GeV.
     + Iteratively restrict to the core: refit over
       $[mu - 1.5 sigma, mu + 1.5 sigma]$, up to 2 iterations, stopping when
       $mu$ and $sigma$ both change by less than $1%$.
@@ -65,8 +65,8 @@ $chi^2 \/ "ndf"$ near 1.
 
 == Normalisation <sec:normalisation>
 
-Because $N^"DIS"$ is counted on Grid A --- the same $(Q^2, x_B)$ cells the
-numerator bins share (@sec:aux-grids) --- each 4D bin divides by the $N^"DIS"$
+Because $N^"DIS"$ is counted on Grid A (the same $(Q^2, x_B)$ cells the
+numerator bins share (@sec:aux-grids)) each 4D bin divides by the $N^"DIS"$
 of its own $(Q^2, x_B)$ cell directly. There is no reweighting between two
 different grids and no separable approximation to fail: the denominator is an
 exact per-cell count, and the diagonal $Q^2$--$x_B$ correlation that would
@@ -96,7 +96,7 @@ entirely by the yields:
     [$1 \/ N_A^"DIS"$], [$4.22 times 10^(-6)$], [$1.3%$],
   ),
   caption: [Statistical error budget for CxC, medians over the populated bins
-  of a representative run. The @DIS normalisation terms are negligible --- the
+  of a representative run. The @DIS normalisation terms are negligible, the
   measurement is limited by the $pi^0$ yield extraction, which is in turn
   limited by the background subtraction.],
 ) <tab:error-budget>
@@ -106,8 +106,8 @@ entirely by the yields:
     (@sec:subtraction).
   + The $plus.minus 3 sigma$ window sum ignores the uncertainty on the
     fitted $mu$ and $sigma$ that define the window.
-  + $R_"CxC"$, $R_"Cu"$ and $R_"Sn"$ are correlated --- they share the
-    LD#sub[2] numerator yield and @DIS count --- but the code treats them as
+  + $R_"CxC"$, $R_"Cu"$ and $R_"Sn"$ are correlated (they share the
+    LD#sub[2] numerator yield and @DIS count), but the code treats them as
     independent. This does not affect any single $R_A$, but it does matter
     for any fit of the $A$-dependence, which is precisely what
     @sec:results-ptb does with $Delta chevron.l p_T^2 chevron.r$. An
@@ -122,7 +122,7 @@ the raw same-event spectrum, from which $mu$ and $sigma$ are taken and
 the raw counts summed over $plus.minus 3 sigma$.
 
 The fitted linear background is discarded, not subtracted. This variant
-is therefore not an alternative background subtraction --- it is a
+is therefore not an alternative background subtraction; it is a
 background-dilution bound: a measurement of what $R_A$ would be with no
 subtraction at all, which is pulled toward unity by the unsubtracted
 combinatorial background.

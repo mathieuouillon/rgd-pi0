@@ -29,7 +29,7 @@ nominal mass is $m_(pi^0) = 0.1349768$ GeV.
     ]
   ]
 
-  i.e.\ $4.8 - 5.9$ MeV below the nominal $134.98$ MeV --- a $4.4%$
+  i.e.\ $4.8 - 5.9$ MeV below the nominal $134.98$ MeV, a $4.4%$
   energy-scale deficit, consistent across targets to better than $1$ MeV.
   The fitted width is $sigma approx 15.5 - 15.7$ MeV throughout.
 
@@ -65,7 +65,7 @@ Candidates are built by greedy exclusive pairing:
 
 #warning-box(title: "The ±200 MeV window is a pairing cut, not a mass selection")[
   The pairing cut is $|m_(gamma gamma) - 0.1349768| < Delta m$ with
-  $Delta m$ = `pairing.mass_window_gev` $= 0.2$ GeV --- deliberately wide.
+  $Delta m$ = `pairing.mass_window_gev` $= 0.2$ GeV, deliberately wide.
   Since $m_(gamma gamma) >= 0$ always, it reduces to
 
   $ m_(gamma gamma) < 0.335 "GeV" $
@@ -74,14 +74,14 @@ Candidates are built by greedy exclusive pairing:
   $335$ MeV enters the "$pi^0$ candidate" collection, so it is not a
   mass-selected sample in any meaningful sense.
 
-  This is by design, not by accident --- the signal is extracted offline by
+  This is by design, not by accident, the signal is extracted offline by
   fitting and subtracting the $m_(gamma gamma)$ spectrum (@sec:background),
   which requires the sidebands to be present; narrowing the window would
   destroy the background estimate. Two consequences must be stated plainly:
 
   - the $p_T$-broadening accumulators, which are filled from this collection
     without any offline subtraction, are computed over a largely
-    combinatorial sample --- see @sec:ptb-caveat;
+    combinatorial sample, see @sec:ptb-caveat;
   - the greedy "closest to $m_(pi^0)$" ordering (@fig:pairing) is doing more
     work than the window is, since the window barely excludes anything.
 ]
@@ -166,7 +166,7 @@ $ phi_h = arctan_2 (arrow(p)_perp dot hat(y), space arrow(p)_perp dot hat(x)) . 
   $20 ,000$ configurations, with no restriction on $phi_h$. That figure
   does not survive scrutiny:
 
-  - it is seed-dependent --- over ten seeds at the same sample size it
+  - it is seed-dependent, over ten seeds at the same sample size it
     ranges from $1.7 times 10^(-11)$ to $9.3 times 10^(-10)$ degrees;
   - and it is unbounded in sample size, degrading from
     $3 times 10^(-11)$ at $N = 2 times 10^4$ to
@@ -176,8 +176,8 @@ $ phi_h = arctan_2 (arrow(p)_perp dot hat(y), space arrow(p)_perp dot hat(x)) . 
   sits at $phi_h approx 0$ or $plus.minus 180degree$, where $arccos$ is
   ill-conditioned: an error $epsilon$ in $cos phi_h$ becomes
   $tilde sqrt(2 epsilon)$ in $phi_h$. So an all-$phi$ "agreement to $X$"
-  number measures the arccos reference and the random seed --- not the code
-  under test --- and shrinking $X$ by taking more samples is impossible by
+  number measures the arccos reference and the random seed, not the code
+  under test, and shrinking $X$ by taking more samples is impossible by
   construction.
 
   The bound that does hold uniformly in $phi_h$ comes from removing

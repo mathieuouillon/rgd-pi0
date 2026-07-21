@@ -4,8 +4,8 @@
 
 == Physics motivation <sec:motivation>
 
-Hadronization --- the transition of a struck quark into the colour-neutral
-hadrons that reach a detector --- is a genuinely non-perturbative part of
+Hadronization, the transition of a struck quark into the colour-neutral
+hadrons that reach a detector, is a genuinely non-perturbative part of
 @QCD, and one of the least constrained. In elementary $e^+ e^-$ or $e p$
 collisions the process can only be characterised through @FF:pl extracted
 from data; the space--time development itself is not observable. Nuclei
@@ -25,8 +25,8 @@ nuclear radius $R_A approx 1.2 A^(1\/3)$ fm, the relevant mechanism is
 partonic energy loss and the observable consequence is a shift of the
 hadron spectrum toward lower energy. If instead the pre-hadron forms inside
 the nucleus, it is absorbed by hadronic final-state interactions and the
-consequence is a genuine reduction of the yield. Distinguishing the two ---
-and thereby measuring $l_p$ and $l_f$ --- is the central goal of nuclear
+consequence is a genuine reduction of the yield. Distinguishing the two,
+and thereby measuring $l_p$ and $l_f$, is the central goal of nuclear
 @SIDIS.
 
 === Why these kinematics <sec:why-kinematics>
@@ -36,7 +36,7 @@ divided by the string tension $kappa approx 1$ GeV/fm: dimensionally
 $l_f tilde nu \/ kappa$, times a model-dependent factor of order $(1-z)$
 that is precisely what a measurement differential in $z$ is meant to pin
 down. The measurement is interesting exactly when that length is comparable
-to the nucleus --- large enough that the hadron sometimes escapes before
+to the nucleus, large enough that the hadron sometimes escapes before
 forming, small enough that it sometimes does not.
 
 @RGD sits in that window. The @DIS cuts of @tab:dis-cuts bound the energy
@@ -63,7 +63,7 @@ the only current file carrying true per-bin means (@sec:binning-caveat).]
   ),
   caption: [Nuclear sizes, against the hadronization length scale
   $nu \/ kappa approx 5$ fm at $chevron.l nu chevron.r = 5.1$ GeV. The two
-  are comparable --- neither limit applies cleanly --- which is what makes
+  are comparable (neither limit applies cleanly), which is what makes
   the measurement worth doing and also what makes it hard: energy loss and
   absorption both contribute, and only their different dependence on $z$,
   $nu$ and $A$ separates them. $chevron.l L chevron.r$ is the mean path from
@@ -74,7 +74,7 @@ One consequence for how this note is binned: $nu$ is not an independent
 axis. It is fixed by $Q^2$ and $x_B$ through $nu = Q^2 \/ (2 M_p x_B)$, so
 the $(Q^2, x_B)$ grid of @sec:binning is a $nu$ binning, read in a rotated
 frame. Since the balance between energy loss and pre-hadron absorption is
-governed by $nu$ --- through the $nu \/ kappa$ of @tab:lengths --- the
+governed by $nu$, through the $nu \/ kappa$ of @tab:lengths, the
 $nu$ dependence is the most direct handle this dataset has on which
 mechanism dominates, and it is available without any new binning.
 
@@ -86,14 +86,14 @@ acceptance and with the statistics documented in @tab:statistics.
 #important-box(title: "The targets were not exposed simultaneously")[
   Each @RGD run used one target. The reference and the nuclear foils were
   taken in separate runs, alternating in blocks over the run period
-  (@sec:runs) --- there is no run in which LD#sub[2] and a nuclear target
+  (@sec:runs); there is no run in which LD#sub[2] and a nuclear target
   were exposed together.
 
   This matters for the whole measurement, because the ratio of
   @eq:multiplicity is then formed from data taken at different times, not
   under identical conditions. Luminosity drift, detector efficiency changes
   and calibration shifts between an LD#sub[2] block and a neighbouring
-  nuclear block do not cancel in $R_A$ --- they enter it directly. The
+  nuclear block do not cancel in $R_A$; they enter it directly. The
   time-dependent systematics that a simultaneous multi-target exposure would
   have removed are, here, a real and so far unevaluated uncertainty
   (@sec:ratio-cancellation).
@@ -136,14 +136,14 @@ things, and the second is the important one.
 
 The bookkeeping part is that it removes the integrated luminosity, the beam
 charge and the dead time, provided these are common to the inclusive and
-semi-inclusive samples --- which they are, since both are counted from the
+semi-inclusive samples, which they are, since both are counted from the
 same events.
 
 The physics part is that it removes the initial state. A nucleus is not a
 free collection of nucleons: its quark distributions are modified relative
 to the deuteron by shadowing at low $x_B$, antishadowing, and the EMC effect
 at large $x_B$. Those are initial-state effects and have nothing to do with
-hadronization --- but they change $N_A^(pi^0)$ and $N_A^"DIS"$ by the same
+hadronization, but they change $N_A^(pi^0)$ and $N_A^"DIS"$ by the same
 factor, because both are measured on the same nucleus at the same
 $(Q^2, x_B)$ and so sample the same nuclear parton densities. In the ratio
 of ratios they cancel. Writing schematically
@@ -172,8 +172,8 @@ accumulates linearly along the path. The resulting broadening,
 
 $ Delta chevron.l p_T^2 chevron.r = chevron.l p_T^2 chevron.r_A - chevron.l p_T^2 chevron.r_D approx hat(q) dot chevron.l L chevron.r , $ <eq:broadening-intro>
 
-measures the transport coefficient $hat(q)$ --- the mean squared transverse
-momentum acquired per unit path length --- times the distance travelled in
+measures the transport coefficient $hat(q)$, the mean squared transverse
+momentum acquired per unit path length, times the distance travelled in
 the medium. It is theoretically cleaner than $R_A$: a difference rather than
 a ratio, insensitive to the absolute normalisation, and free of the
 fragmentation function to the extent that the intrinsic $p_T$ is
@@ -226,8 +226,8 @@ the most acceptance-robust of the three.
 
 == What this measurement adds <sec:previous>
 
-The qualitative picture --- attenuation growing with $A$ and with $z$, and a
-$p_T$ broadening positive and increasing with $A$ --- is established. What
+The qualitative picture (attenuation growing with $A$ and with $z$, and a
+$p_T$ broadening positive and increasing with $A$) is established. What
 is not established is anything quantitative enough to separate partonic
 energy loss from pre-hadron absorption, because that separation lives in the
 differential behaviour: how the attenuation evolves with $z$ at fixed

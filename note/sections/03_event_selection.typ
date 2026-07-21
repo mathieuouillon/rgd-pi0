@@ -2,15 +2,15 @@
 
 = Event selection <sec:event-selection>
 
-Selection proceeds in three stages --- electron identification, @DIS
-kinematics, photon identification --- all of them in the C++ skim. Nothing
+Selection proceeds in three stages (electron identification, @DIS
+kinematics, photon identification) all of them in the C++ skim. Nothing
 downstream can loosen them.
 
 #note-box(title: "Provenance of the distributions in this section")[
   The figures throughout @sec:event-selection are illustrative: they apply
   the selection documented here to a single LD#sub[2] run (18431), truncated to
   its first $150 000$ events. That is enough to show the shape of each cut and
-  what it removes, and nothing more --- it is one run of one target, not the
+  what it removes, and nothing more; it is one run of one target, not the
   production sample, so no rate, ratio or efficiency may be read from it. The
   photons in particular are classified by the @RGA fallback model
   (@sec:photon-id), so none of these figures is a photon-efficiency measurement.
@@ -32,7 +32,7 @@ $"pid" = 11$, $"status" < 0$, $2000 <= |"status"| < 4000$ (i.e.\ in the
     align: (left, left, left),
     table.header([*Cut*], [*Value*], [*Comment*]),
     [$chi^2_"PID"$], [$-5 < chi^2_"PID" < 5$], [Standard @EB PID quality.],
-    [Momentum], [$p > 2.0$ GeV], [See the warning below --- not $0.8$ GeV.],
+    [Momentum], [$p > 2.0$ GeV], [See the warning below, not $0.8$ GeV.],
     [Vertex $z$], [target-dependent], [@sec:vertex.],
     [@SF], [$mu(p) plus.minus 3.5 sigma(p)$], [Per sector, per polarity;
       @eq:sf.],
@@ -43,7 +43,7 @@ $"pid" = 11$, $"status" < 0$, $2000 <= |"status"| < 4000$ (i.e.\ in the
   ),
   caption: [Electron selection, applied in this order with short-circuit
   evaluation. All comparisons are strict. There is no @ECAL (ECIN/ECOUT)
-  fiducial cut, no polar-angle cut, and no @HTCC photoelectron cut ---
+  fiducial cut, no polar-angle cut, and no @HTCC photoelectron cut,
   the @PCAL $l_v \/ l_w$ pair is the only calorimeter fiducial, and the
   @SF cut is the only $e\/pi$ separation.],
 ) <tab:electron-cuts>
@@ -51,7 +51,7 @@ $"pid" = 11$, $"status" < 0$, $2000 <= |"status"| < 4000$ (i.e.\ in the
 #wide-figure(
   "../figures/sel_electron_cutflow.pdf",
   [Where trigger electrons are lost, in the order the cuts run
-  (@tab:electron-cuts), with short-circuit evaluation --- so each bar counts
+  (@tab:electron-cuts), with short-circuit evaluation, so each bar counts
   only the candidates a cut is the first to reject. The momentum cut
   dominates at its $2.0$ GeV threshold. The @PCAL fiducial removes almost
   nothing at the loose $9$ cm level; the sampling-fraction and @DC edge cuts
@@ -106,7 +106,7 @@ $ |v_z^"corr" - mu| < 3.0 sigma . $ <eq:vz>
     columns: (auto, auto, auto, auto),
     align: (left, left, center, center),
     table.header([*Target*], [*Rule*], [*Peak $mu$ (cm)*], [*Window (cm)*]),
-    [LD#sub[2]], [raw $v_z$, correction disabled], [---], [$(-15.0, 5.0)$],
+    [LD#sub[2]], [raw $v_z$, correction disabled], [, ], [$(-15.0, 5.0)$],
     [Cu], [corrected, upstream peak only], [$-7.861$], [$(-9.106, -6.616)$],
     [Sn], [corrected, downstream peak only], [$-2.916$], [$(-4.026, -1.806)$],
     [CxC], [corrected, either peak], [$-7.887$ / $-2.906$],
@@ -128,7 +128,7 @@ $ |v_z^"corr" - mu| < 3.0 sigma . $ <eq:vz>
     Sn $arrow.l.r -2.92$) is self-consistent and agrees with the legacy
     lookup table; trust the numbers, not the prose.
   + The service overrides the peak parameters read from the parameter
-    file with hard-coded values --- e.g.\ the file gives
+    file with hard-coded values, e.g.\ the file gives
     $sigma_"hi" = 0.385$ for CuSn outbending where the service uses
     $0.415$, an $8%$ difference. The correction polynomials come from the
     file; the cut window does not. @tab:vz quotes the values that are
@@ -145,7 +145,7 @@ targets it gives materially different windows. Do not use
   [Corrected electron vertex for the LD#sub[2] run, log scale. The accepted
   band (blue) drops sharply at the raw LD#sub[2] window edges $(-15, 5)$ cm
   (@tab:vz, dotted); the Cu ($plus.minus 3 sigma$ about $-7.86$) and Sn (about
-  $-2.92$) windows are overlaid to show they are disjoint --- for the solid
+  $-2.92$) windows are overlaid to show they are disjoint, for the solid
   targets $v_z$ alone assigns the nucleus, so the two foils never share an
   event. The tails beyond the axis ($4.8%$, annotated) are misreconstructed
   tracks. For LD#sub[2] the correction is disabled, so this is the raw $v_z$.],
@@ -166,7 +166,7 @@ with $M_p = 0.938272$ GeV and $E_"beam" = 10.53$ GeV. Two implementation
 details are worth stating because they are inherited rather than chosen:
 $Q^2$ uses the massless/angle form rather than $-(k - k')^2$ (equivalent to
 better than the resolution at these energies), and $x_B$ uses the proton
-mass for the nuclear targets too --- conventional for multiplicity ratios,
+mass for the nuclear targets too, conventional for multiplicity ratios,
 where the per-nucleon variable is what cancels, but worth stating
 explicitly.
 
@@ -206,7 +206,7 @@ explicitly.
   [The @DIS variables of the accepted sample against their cuts
   (@tab:dis-cuts). $Q^2$ and $W$ press against their lower bounds; $y$ reaches
   only $~0.82$, comfortably inside the $0.85$ ceiling, so on this sample the
-  $y$ cut removes nothing --- consistent with its role as a soft
+  $y$ cut removes nothing, consistent with its role as a soft
   radiative-correction guard rather than an active edge. $nu$ has no cut of
   its own.],
   <fig:sel-dis1d>,
@@ -236,7 +236,7 @@ rather than by cut-based identification.
   ),
   caption: [Photon selection. The energy, @PCAL energy and polar-angle
   requirements sit inside the classifier's purity pre-filter, so they apply
-  only on the AI path --- which is the production path. Photon energy is
+  only on the AI path, which is the production path. Photon energy is
   taken as $E_gamma = |arrow(p)_gamma|$ (massless). There is no timing
   cut anywhere in the $pi^0$ chain; $beta$ is the only timing-derived
   handle.],
@@ -245,8 +245,8 @@ rather than by cut-based identification.
 The classifier takes a 45-component feature vector: seven variables for
 the candidate itself ($E_gamma$, $E_"PCAL"$, $theta$, the shower second
 moments $m_(2u)$ and $m_(2v)$, and the angular distance and energy
-difference to the scattered electron), then five variables --- angular
-distance, energy difference, @PCAL energy and the two second moments ---
+difference to the scattered electron), then five variables (angular
+distance, energy difference, @PCAL energy and the two second moments)
 for each of the three nearest photons, two nearest charged hadrons and two
 nearest neutral hadrons ($5 times 7 = 35$), and finally three counts of
 neighbouring photons within $Delta R < 0.1$, $0.2$ and $0.35$ rad. Angular
@@ -274,15 +274,15 @@ that a simple energy threshold cannot.
     ]
   ]
 
-  So every RG-D photon in this analysis --- outbending data, nuclear
-  targets --- is identified by a model trained on RG-A inbending pass-1
+  So every RG-D photon in this analysis (outbending data, nuclear
+  targets) is identified by a model trained on RG-A inbending pass-1
   data. No warning is logged. The pass index is likewise hard-coded to 1
   and never set from the configuration.
 
   This is the single largest known systematic on the photon efficiency, and
   it is entirely unquantified. It does not obviously bias the ratio
   $R_A$, since the same model is applied to every target and the efficiency
-  should cancel to first order --- but that cancellation is an assumption,
+  should cancel to first order, but that cancellation is an assumption,
   not a measurement, and it fails to the extent that photon efficiency
   depends on the local occupancy, which does differ between LD#sub[2] and
   Sn. Quantifying it requires either a model trained on @RGD or a
@@ -292,8 +292,8 @@ that a simple energy threshold cannot.
 #wide-figure(
   "../figures/sel_gbt_score.pdf",
   [The classifier score $sigma("model")$ for photon candidates, log scale,
-  coloured by the $0.78$ threshold. The distribution is bimodal --- a background
-  population piling up near zero, a signal peak near one --- and the threshold
+  coloured by the $0.78$ threshold. The distribution is bimodal (a background
+  population piling up near zero, a signal peak near one) and the threshold
   sits in the valley between them. Clusters rejected by the purity pre-filter
   (energy, @PCAL energy, polar angle) are never scored and are counted in the
   title, not drawn at a false zero. Of the $15\,841$ clusters above threshold, a
@@ -328,7 +328,7 @@ downstream iteration fast.
 The price is that the photon selection is frozen. The skim carries no
 PID, status, $beta$ or vertex column for photons, so the downstream
 analysis cannot re-cut or vary them. Re-tuning the AI threshold, the
-$beta$ window or the @PCAL fiducial --- each of which is a systematic that
-ought to be varied --- requires re-running the skim over the full dataset.
+$beta$ window or the @PCAL fiducial, each of which is a systematic that
+ought to be varied, requires re-running the skim over the full dataset.
 The slim reader also rebuilds photons with $beta$ and vertex zeroed, so the
 slim path cannot even reproduce the $beta$ cut it inherited.

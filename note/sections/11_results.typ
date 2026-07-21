@@ -5,15 +5,15 @@
 #important-box(title: "First end-to-end run of the rewritten pipeline — diagnostic only")[
   Every number in this section is the first output of the rewritten
   Stage A $arrow$ `make_grid` $arrow$ Stage B $arrow$ Stage C chain run end to
-  end on data. It is diagnostic only --- three independent blockers forbid
+  end on data. It is diagnostic only, three independent blockers forbid
   quoting any of it, and each is stamped into the result files:
 
   - Photon fallback. No GBT model covers @RGD, so photons were scored by the
     @RGA inbending model (`gbt.fallback_used = TRUE`). The photon sample is not
     the one the cuts describe.
   - Truncated statistics. Stage A read only the first $2 times 10^6$ events
-    of each of the $95$ SIDIS-train files, so $N_"DIS"$ --- the normalisation
-    denominator --- is a prefix of each run and every yield carries
+    of each of the $95$ SIDIS-train files, so $N_"DIS"$, the normalisation
+    denominator, is a prefix of each run and every yield carries
     `--allow-truncated-inputs`.
   - No systematics. Errors are statistical only and correlated through the
     shared LD#sub[2] reference (@sec:ra-uncertainties); no acceptance, bin
@@ -52,7 +52,7 @@ The cleanest result, and the one that most directly validates the chain.
   only. Positive, monotonic in $A$, and each more than $4 sigma$ from zero.],
 ) <tab:ptb>
 
-The broadening is positive, grows with $A$, and --- an external check --- agrees
+The broadening is positive, grows with $A$, and, as an external check, agrees
 to within $10-15%$ with an earlier, independent analysis of the same @RGD data
 ($0.00168$, $0.00302$, $0.00466$ GeV#super[2] for C, Cu, Sn). Two independent
 implementations landing on the same values, from a different binning and
@@ -123,10 +123,10 @@ the medium, and consistent with the earlier analysis's $A^(0.43)$.
 Read as an inverse-variance weighted average, the ratio shows genuine
 attenuation, with the qualitative shape expected of nuclear hadronization:
 
-/ Suppression is real: all three overall ratios lie well below unity --- C the
+/ Suppression is real: all three overall ratios lie well below unity, C the
   least ($0.925$), Cu and Sn near $0.83$.
 / It grows with $z$ for the heavy target: $R_"Sn"$ falls monotonically from
-  $1.08$ at $chevron.l z chevron.r = 0.11$ to $0.67$ in the top $z$ bin --- the
+  $1.08$ at $chevron.l z chevron.r = 0.11$ to $0.67$ in the top $z$ bin, the
   expected high-$z$ attenuation, and the cleanest single trend in the ratio.
 / Low-$z$ enhancement: $R_"Sn" > 1$ at the lowest $z$, consistent with energy
   removed from the leading hadron reappearing as additional soft production.
@@ -143,24 +143,24 @@ attenuation, with the qualitative shape expected of nuclear hadronization:
 
 #warning-box(title: "Weighted mean and median disagree — read before quoting R_A")[
   The attenuation above is in the inverse-variance weighted mean. The
-  median $R$ over the same bins is $0.99$ (C), $0.95$ (Cu), $0.97$ (Sn)
-  --- consistent with unity. The two disagree because the suppression lives in
+  median $R$ over the same bins is $0.99$ (C), $0.95$ (Cu), $0.97$ (Sn),
+  consistent with unity. The two disagree because the suppression lives in
   the high-statistics bins that dominate the weighted mean, while the many
   thin, noisy bins scatter symmetrically about one and dominate the median.
   With this note's own caution about weighted averages in mind (the @BSA
   section makes the same point), the $R_A$ signal is suggestive, not
   established: the ordering above C is not resolved ($R_"Cu" approx R_"Sn"$),
   and the whole picture rests on error weights from a truncated,
-  background-subtracted, fallback-photon sample. More statistics --- and a $z$
+  background-subtracted, fallback-photon sample. More statistics (and a $z$
   binning that resolves the top box rather than folding $z in [0.37, 1.0]$ into
-  one bin --- are the way to settle it.
+  one bin) are the way to settle it.
 ]
 
 == Beam-spin asymmetry <sec:results-bsa>
 
 Not yet extracted. `pi0.bsa` refuses to run without a measured beam
-polarization (@sec:bsa-polarization) --- there is deliberately no placeholder,
-the old code's self-declared $P = 0.85$ having been removed --- and the @RGD
+polarization (@sec:bsa-polarization) (there is deliberately no placeholder,
+the old code's self-declared $P = 0.85$ having been removed) and the @RGD
 value is not yet recorded in `cuts.json`. The Stage B `bsa` tree is written and
 waiting; the asymmetry will be filled in here once $P plus.minus sigma_P$ is
 supplied.

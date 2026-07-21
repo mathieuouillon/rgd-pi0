@@ -33,12 +33,12 @@ ensures the combinatorics are comparable.
     align: (left, left),
     table.header([*Property*], [*Implementation*]),
     [Depth], [$N = 50$ events per bin, @FIFO eviction],
-    [Ordering], [Mix then insert --- an event never mixes with itself],
+    [Ordering], [Mix then insert, an event never mixes with itself],
     [Pairing], [Current event's photons $times$ every photon in the pool],
     [Concurrency], [32 shards keyed on `bin % 32`, shared-mutex: concurrent
       reads while mixing, exclusive lock to update],
     [Storage], [5-double cache per photon, not full particles],
-    [Output], [Histograms only --- mixed pairs are never written to the
+    [Output], [Histograms only, mixed pairs are never written to the
       ntuple],
   ),
   caption: [The event-mixing pool. The mix-before-insert ordering is the
@@ -50,7 +50,7 @@ ensures the combinatorics are comparable.
 ) <tab:pool>
 
 The finalisation step logs pool occupancy and warns for every bin that
-never reached depth $N$ --- a genuine quality-assurance feature, and the
+never reached depth $N$, a genuine quality-assurance feature, and the
 right place to look for bins where the background estimate is thin.
 
 === Two asymmetries in the mixed sample <sec:mixing-asymmetry>
@@ -58,8 +58,8 @@ right place to look for bins where the background estimate is thin.
 #important-box(title: "The e–γ cut is one-sided for mixed pairs")[
   For a mixed pair only the current-event photon is tested against the
   $theta_(e gamma) > 8degree$ cut; the pooled photon is never re-tested
-  against the current event's electron. This is correct by construction
-  --- the pooled photon was already tested against its own event's
+  against the current event's electron. This is correct by construction,
+  the pooled photon was already tested against its own event's
   electron, which is the physically meaningful reference.
 
   There is, however, a genuine inconsistency alongside it: all of the
@@ -89,7 +89,7 @@ $1.5$ MeV per bin.
 
 #note-box(title: "A single high-mass sideband")[
   The normalisation uses only the upper sideband $(0.17, 0.28)$ GeV. A
-  low-mass sideband is available in principle but is not used --- at low
+  low-mass sideband is available in principle but is not used, at low
   $m_(gamma gamma)$ the spectrum is distorted by the opening-angle cut of
   @eq:theta-min, which removes precisely the small-angle pairs that
   populate it, so the mixed and same spectra are not expected to share a

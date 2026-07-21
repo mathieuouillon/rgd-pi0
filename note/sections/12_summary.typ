@@ -26,8 +26,8 @@ The chain has been run end to end on real data for the first time
 (@sec:results). That run is diagnostic: it read a $2 times 10^6$-event
 prefix of each SIDIS-train file, and its photons carry the @RGA fallback of
 @sec:photon-id, so no number from it may be quoted. What it establishes is that
-the machinery is correct --- the $p_T$ broadening comes out positive,
-$A$-ordered and consistent with an independent prior analysis --- and that the
+the machinery is correct (the $p_T$ broadening comes out positive,
+$A$-ordered and consistent with an independent prior analysis) and that the
 remaining work is statistics, correction and validation rather than
 reconstruction.
 
@@ -51,7 +51,7 @@ reconstruction.
       [@sec:photon-id],
     [No systematics],
       [Not one systematic is evaluated, and no acceptance, bin-migration or
-       radiative correction is applied --- there is no simulation chain yet.],
+       radiative correction is applied; there is no simulation chain yet.],
       [@sec:systematics],
     [Beam polarization],
       [`pi0.bsa` refuses to run without a measured $P$; there is no placeholder.
@@ -75,7 +75,7 @@ reconstruction.
 
 == Recommended next steps <sec:outlook>
 
-Immediate --- no new data.
+Immediate; no new data.
 
 + Run the full-luminosity production. Remove the $2 times 10^6$-event cap
   and skim the complete SIDIS train; this is the same command with a larger
@@ -88,11 +88,11 @@ Immediate --- no new data.
 + Difference the subtracted and no-subtraction $R_A$ variants into a first
   background systematic (@sec:no-subtraction).
 
-Short term --- small code or data changes.
+Short term, small code or data changes.
 
 + Project $R_A$ against $nu = Q^2 \/ (2 M_p x_B)$ at fixed $z$. The
   $(Q^2, x_B)$ grid already contains it (@sec:why-kinematics), so this needs
-  no new data, no new binning and no simulation --- and at
+  no new data, no new binning and no simulation, and at
   $chevron.l nu chevron.r approx 5.1$ GeV, where $nu \/ kappa$ is comparable
   to the nuclear size (@tab:lengths), the $nu$ dependence is what separates
   energy loss from pre-hadron absorption.
@@ -104,9 +104,9 @@ Short term --- small code or data changes.
 Medium term.
 
 + Commission an @RGD photon-ID model, or measure the photon efficiency from
-  data, and re-skim --- this is the highest-value fix, since it removes the
+  data, and re-skim; this is the highest-value fix, since it removes the
   single largest unquantified photon systematic.
-+ Run the inbending dataset --- both for statistics and as the
++ Run the inbending dataset; both for statistics and as the
   detector-systematic cross-check the analysis currently lacks entirely.
 
 Longer term.
@@ -116,7 +116,7 @@ Longer term.
   the current ratios into a measurement.
 + Extend to the charged-pion channels for a flavour-separated comparison
   using the same framework, and cross-check $R_A$ between the $pi^0$ and
-  $pi^plus.minus$ channels --- their systematics are almost disjoint, which
+  $pi^plus.minus$ channels; their systematics are almost disjoint, which
   makes the comparison unusually powerful.
 
 == Closing assessment <sec:closing>
@@ -129,11 +129,11 @@ end on data with a provenance guard that refuses to quote what it should not.
 
 The gap between that infrastructure and a publishable measurement is almost
 entirely in statistics, correction and validation, not in reconstruction.
-That is a comfortable position to be in --- but the gap is wide. The diagnostic
+That is a comfortable position to be in, but the gap is wide. The diagnostic
 run must be replaced by a full-luminosity production before any yield is a
 number; the photon-ID fallback must be closed before the photon efficiency is
 trusted; and because the targets were taken in separate runs, the run-to-run
-systematic is both plausibly the largest uncertainty and a complete blank ---
+systematic is both plausibly the largest uncertainty and a complete blank,
 yet the six LD#sub[2] blocks of @tab:run-blocks measure it directly, from data
 already on disk. Beyond those, the dataset has one clear physics opportunity
 that costs nothing to take: $R_A$ against $nu$, which the existing

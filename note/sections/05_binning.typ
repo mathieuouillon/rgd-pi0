@@ -11,12 +11,12 @@ equal along it, and the edges are global, quotable and hashed into every
 output (@sec:provenance-gaps).
 
 This is a deliberate trade against an adaptive binning. An adaptive
-tree can follow the strong correlations in the data --- $Q^2$ with $x_B$, and
-$p_T^2$ with $z$ --- and equalise its leaves; a product grid cannot, and
+tree can follow the strong correlations in the data ($Q^2$ with $x_B$, and
+$p_T^2$ with $z$) and equalise its leaves; a product grid cannot, and
 leaves its corner cells under- or un-populated. What the product grid buys in
 return is reproducibility: global rectangular edges that are identical on
 every run, version-controlled, hashed into every result, and quotable in every
-dimension --- none of which an unseeded, per-cell-adaptive tree offered.
+dimension; none of which an unseeded, per-cell-adaptive tree offered.
 
 == The grids <sec:grids>
 
@@ -27,8 +27,8 @@ dimension --- none of which an unseeded, per-cell-adaptive tree offered.
     table.header([*Grid / tree*], [*Axes*], [*Shape*], [*Bins*]),
     [Grid A (per event)], [$Q^2, x_B$], [$8 times 7$], [$56$ ($47$ populated)],
     [Grid B (per $pi^0$)], [$z, p_T^2$], [$5 times 5$], [$25$],
-    [4D --- multiplicity, @BSA], [$A times B$], [$56 times 25$], [$1400$],
-    [3D --- $p_T$ broadening], [$A times (z "of" B)$], [$56 times 5$], [$280$],
+    [4D (multiplicity, @BSA], [$A times B$], [$56 times 25$], [$1400$],
+    [3D) $p_T$ broadening], [$A times (z "of" B)$], [$56 times 5$], [$280$],
   ),
   caption: [The grids. The same/mixed $m_(gamma gamma)$ spectra and the
   per-bin $phi_h$ histogram share the 4D grid; the broadening uses
@@ -41,7 +41,7 @@ Bins are indexed by a single row-major integer,
 
 $ "bin4d" = (i_(Q^2) dot 7 + i_(x_B)) dot 25 + (i_z dot 5 + i_(p_T^2)) , $ <eq:leaf>
 
-with the axis order load-bearing --- `Binning::load` checks the axis names
+with the axis order load-bearing, `Binning::load` checks the axis names
 against the order it expects and refuses a swapped pair. Grid A and Grid B are
 computed from a single pooled scan of all four targets, so the edges are
 common to numerator and denominator and the ratio of @eq:multiplicity is
@@ -65,7 +65,7 @@ formed bin-for-bin.
   marginal is flat: the Grid A row sums are equal to $approx 686 000$ per
   $Q^2$ row and $approx 784 000$ per $x_B$ column, the Grid B marginals to
   $approx 502 000$ each, to within rounding. The cells are deliberately not
-  flat --- the two axes are correlated, and a factorized grid cannot follow
+  flat, the two axes are correlated, and a factorized grid cannot follow
   that.],
 ) <tab:kdtree-geometry>
 
@@ -73,8 +73,8 @@ formed bin-for-bin.
   "../figures/binning_grid_factorized.pdf",
   [The factorized equal-statistics grid, drawn over the pooled data density it
   partitions (Grid A per event, Grid B per $pi^0$; log colour scale). The grid
-  lines are global and rectangular in every dimension --- the reproducibility
-  this scheme is built for --- and the density makes the trade visible: the
+  lines are global and rectangular in every dimension, the reproducibility
+  this scheme is built for, and the density makes the trade visible: the
   edges bunch in tight where the data piles up, while the $Q^2$--$x_B$
   correlation leaves the top-left and bottom-right corner cells empty, the
   adaptivity a product grid gives up in exchange.],
@@ -86,7 +86,7 @@ formed bin-for-bin.
 
 #important-box(title: "The widest bins must be plotted at their mean, not their midpoint")[
   An equal-statistics grid packs equal counts into each bin, so the
-  outermost bin of each axis --- which runs to the kinematic limit --- is
+  outermost bin of each axis, which runs to the kinematic limit, is
   enormously wide while holding no more $pi^0$ than its narrow neighbours. The
   top $z$ bin spans $[0.375, 1.0]$ and the top $p_T^2$ bin $[0.21, 4.99]$
   GeV#super[2], against interior widths of a few hundredths.
@@ -100,7 +100,7 @@ formed bin-for-bin.
   purely an abscissa artefact.
 
   The values in a bin are correct integrals over it; only a midpoint
-  abscissa would be wrong --- which is why this analysis never uses one.
+  abscissa would be wrong, which is why this analysis never uses one.
 ]
 
 === How it is handled <sec:binning-caveat-fix>
@@ -127,7 +127,7 @@ be confused with them.
 
 / Normalisation grid: the @DIS denominator $N^"DIS"(Q^2, x_B)$ of
   @eq:multiplicity is counted once per event into the `n_dis` tree, on Grid A
-  itself --- the same $(Q^2, x_B)$ cells the numerator uses --- so no
+  itself (the same $(Q^2, x_B)$ cells the numerator uses) so no
   area-fraction reweighting is needed between them (@sec:normalisation).
 
 / Mixing pool grid: the mixed-event donor pool is keyed on a hand-maintained

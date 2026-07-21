@@ -12,14 +12,14 @@ $ A_"LU" (phi_h) = 1/P dot (N^+ - N^-) / (N^+ + N^-) , $ <eq:alu>
 $ sigma_(A_"LU") = 1/P sqrt((1 - (P dot A_"LU")^2) / (N^+ + N^-)) . $ <eq:alu-err>
 
 Writing $r = (N^+ - N^-)\/(N^+ + N^-) = P A_"LU"$, the variance term is
-exactly the binomial $(1 - r^2)\/N$ --- correct, and well defined for all
+exactly the binomial $(1 - r^2)\/N$, correct, and well defined for all
 $|r| <= 1$. No charge or luminosity normalisation enters, and none is
 needed: the beam charge cancels identically in the ratio provided the
 helicity flips fast compared with any drift.
 
 #result-box(title: "A_LU is acceptance-safe by construction")[
   @eq:alu is a ratio of yields taken within a single $phi_h$ bin, so any
-  helicity-independent acceptance cancels exactly --- not approximately.
+  helicity-independent acceptance cancels exactly, not approximately.
   This is what makes the @BSA the most robust observable in this note
   despite the analysis having no acceptance correction at all. The contrast
   with a raw $chevron.l cos phi_h chevron.r$-type moment is instructive:
@@ -36,7 +36,7 @@ in `PI0::event`). Events with `helicity == 0` (undefined) are dropped.
 #important-box(title: "HWP handling is inherited, not verified")[
   The chain uses the HWP-corrected `helicity` field throughout and never
   touches `helicityRaw`. The @HWP state is therefore handled entirely
-  upstream by the CLAS12 cooking and @RCDB --- there is no per-run-period
+  upstream by the CLAS12 cooking and @RCDB; there is no per-run-period
   @HWP bookkeeping at any level of this analysis, and no HWP-in versus
   HWP-out closure test.
 
@@ -90,7 +90,7 @@ An unbinned maximum-likelihood alternative is documented in
   The per-$(phi_h, "bin")$ yields $N^plus.minus$ are raw counts inside a
   fixed window $0.110 < m_(gamma gamma) < 0.160$ GeV
   ($135 plus.minus 25$ MeV). There is no mass fit and no sideband
-  subtraction --- unlike the multiplicity analysis, which does both.
+  subtraction, unlike the multiplicity analysis, which does both.
 
   If the combinatorial background is unpolarised, as expected, it dilutes
   the asymmetry multiplicatively:
@@ -116,7 +116,7 @@ polarization (below).
 
 #wide-figure(
   "../figures/phi_h_acceptance.pdf",
-  [Raw $phi_h$ yield $N^+ + N^-$ for a representative bin --- the honest
+  [Raw $phi_h$ yield $N^+ + N^-$ for a representative bin, the honest
   acceptance diagnostic. The shape is not physics: it is the CLAS12
   azimuthal acceptance, with the sector structure and the gaps between
   sectors plainly visible. This figure is the argument of
@@ -134,7 +134,7 @@ polarization (below).
 #warning-box(title: "A_LU has no polarization, by design")[
   `pi0.bsa` refuses to run without a beam polarization: it is mandatory as
   `--polarization P` or `config/cuts.json` `/bsa/polarization/value`, and there
-  is deliberately no default --- the old code's self-declared $P = 0.85$ was
+  is deliberately no default, the old code's self-declared $P = 0.85$ was
   removed precisely because a placeholder that silently scales every $A_"LU"$
   is worse than a hard stop. Since $A_"LU" prop 1\/P$, the polarization is a
   fully-correlated scale on every asymmetry, and its uncertainty

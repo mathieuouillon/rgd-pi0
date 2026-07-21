@@ -9,18 +9,18 @@
   because it is a statement about absence. The codebase was searched
   exhaustively for acceptance, bin migration, radiative, contamination,
   charge normalisation, dead time, dilution, unfolding and efficiency
-  corrections. Every hit is a false positive --- a histogram name, an
+  corrections. Every hit is a false positive, a histogram name, an
   unrelated binary, or a passive bank schema.
 
   The complete correction chain is:
 
-  + Combinatorial background --- sideband-scaled mixed-event subtraction
+  + Combinatorial background, sideband-scaled mixed-event subtraction
     (@sec:subtraction). Applied to the multiplicity ratio only; not to
     $Delta chevron.l p_T^2 chevron.r$ (@sec:ptb-caveat) and not to $A_"LU"$
     (@sec:bsa-signal).
-  + Vertex correction --- a track-level kinematic correction feeding the
+  + Vertex correction, a track-level kinematic correction feeding the
     vertex cut (@sec:vertex). It corrects a cut boundary, not a yield.
-  + Luminosity, beam charge, dead time --- not corrected, but cancelled
+  + Luminosity, beam charge, dead time, not corrected, but cancelled
     by construction in the $N^"DIS"$-normalised ratio, to the extent they
     are common to the inclusive and semi-inclusive samples. They are, since
     both are counted from the same events.
@@ -68,7 +68,7 @@ apart. Four independent ways the cancellation fails are known to exist:
   (@tab:vz), so they see slightly different detector acceptance. LD#sub[2]
   is an extended cell, unlike the foils.
 
-None of these has been quantified --- but the first, which is also the
+None of these has been quantified, but the first, which is also the
 largest, is directly measurable from the existing data at no cost, by
 comparing the six LD#sub[2] blocks of @tab:run-blocks against one another.
 Until that is done, the size of the run-to-run systematic on every number in
@@ -136,8 +136,8 @@ Until that is done, the size of the run-to-run systematic on every number in
   perfect.
 
   Systematics will dominate the final uncertainty entirely. Quoting the
-  statistical error alone --- as every plot and result file in the current
-  production does --- overstates the precision by an unknown but certainly
+  statistical error alone, as every plot and result file in the current
+  production does, overstates the precision by an unknown but certainly
   large factor. No result in this note should be interpreted as a
   measurement with a $0.1%$ uncertainty.
 ]
@@ -154,7 +154,7 @@ Ordered by (impact $times$ ease), the cheapest first:
   value. One line and one number; unblocks the @BSA entirely.
 + Difference the subtracted and no-subtraction variants into a background
   systematic. Both already exist for every bin.
-+ Run the full-luminosity production --- remove the diagnostic
++ Run the full-luminosity production, remove the diagnostic
   $2 times 10^6$-event/file cap so the yields are complete
   (@sec:statistics).
 + Vary the sideband and the integration window. Pure re-running.

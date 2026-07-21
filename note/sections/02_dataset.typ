@@ -25,7 +25,7 @@ Four target configurations enter this note:
   caption: [Target set. Each run used a single target: LD#sub[2], CxC and
   CuSn were taken in separate, non-overlapping runs (@sec:runs), so the ratio
   of @eq:multiplicity compares data recorded at different times. Cu and Sn
-  are the exception --- they are two foils in one CuSn assembly, exposed in
+  are the exception; they are two foils in one CuSn assembly, exposed in
   the same runs and separated offline by the electron vertex $v_z$
   (@sec:vertex). Stage A writes one slim file per target.],
 ) <tab:targets>
@@ -39,8 +39,8 @@ run-to-run systematic that afflicts every ratio against LD#sub[2].
 Torus polarity. Every result in this note comes from outbending data
 only. The run-list filter (@sec:runs) selects the outbending runs; the
 inbending set is present in `config/runs.json` but no production reads it.
-The inbending dataset therefore remains an untapped statistical reserve, and
---- more importantly --- a polarity comparison is one of the few
+The inbending dataset therefore remains an untapped statistical reserve, and,
+more importantly, a polarity comparison is one of the few
 detector-systematic handles available; it has not been exercised.
 
 == Run ranges <sec:runs>
@@ -58,7 +58,7 @@ detector-systematic handles available; it has not been exercised.
     [CuSn],                 [Inbending],  [18347 -- 18394], [27],
   ),
   caption: [@RGD run lists as recorded in `config/runs.json`. Cu and Sn share
-  the `CuSn` run list --- they are two foils in one assembly, separated
+  the `CuSn` run list; they are two foils in one assembly, separated
   offline by vertex (@sec:vertex). These lists are applied: `pi0.farm`
   refuses any input file whose run is not in the target's list for the
   requested polarity, because the SIDIS-train directory tree holds inbending
@@ -68,8 +68,8 @@ detector-systematic handles available; it has not been exercised.
   which enters the outbending production.],
 ) <tab:runs>
 
-The three outbending lists are pairwise disjoint --- no run appears under
-two targets --- confirming that each run carried a single target. Together
+The three outbending lists are pairwise disjoint, no run appears under
+two targets, confirming that each run carried a single target. Together
 they are $135 + 112 + 268 = 515$ distinct runs spanning 18419--19131.
 
 Ordering those 515 runs and labelling each by its target resolves them into
@@ -104,7 +104,7 @@ Ordering those 515 runs and labelling each by its target resolves them into
   The six separate LD#sub[2] blocks are the most useful thing in
   @tab:run-blocks. They are the same target measured at six points spread
   across the run period, so any difference between them is pure
-  time-dependent systematic --- there is no physics that should make
+  time-dependent systematic; there is no physics that should make
   deuterium behave differently in April than in June.
 
   Forming $R$ of one LD#sub[2] block against another therefore measures,
@@ -117,8 +117,8 @@ Ordering those 515 runs and labelling each by its target resolves them into
 
 == Processing chain <sec:dataflow>
 
-The analysis is one repository --- `github.com/mathieuouillon/rgd-pi0`, C++17
-and Python, LGPL-3.0 --- run in four stages. Each stage stamps its
+The analysis is one repository (`github.com/mathieuouillon/rgd-pi0`, C++17
+and Python, LGPL-3.0) run in four stages. Each stage stamps its
 configuration and its inputs into its output, and refuses to build physics on
 an input it cannot vouch for (@sec:provenance-gaps).
 
@@ -129,9 +129,9 @@ an input it cannot vouch for (@sec:provenance-gaps).
       columns: (auto, 1fr, auto),
       align: (left, left, left),
       table.header([*Stage*], [*What it does*], [*Output*]),
-      [A. Skim], [`stageA_skim` (hipo4 + RDataFrame) reads @HIPO DST files ---
+      [A. Skim], [`stageA_skim` (hipo4 + RDataFrame) reads @HIPO DST files,
         the SIDIS train under
-        `/cache/clas12/rg-d/production/pass1/recon/<T>/dst/train/SIDIS/` ---
+        `/cache/clas12/rg-d/production/pass1/recon/<T>/dst/train/SIDIS/`,
         applies electron, @DIS and @GBT photon selection, and writes a slim
         `events` TTree. Driven by `pi0.batch` (@SWIF2) on the farm or
         `pi0.local_batch` interactively.],
@@ -162,7 +162,7 @@ an input it cannot vouch for (@sec:provenance-gaps).
 The skim exists because it is a large reduction: only the trigger electron's
 four-momentum, the @DIS kinematics, the helicity and the selected photons
 survive. That makes the downstream analysis fast to iterate, at a price
-documented in @sec:skim-cost --- the photon selection is baked in and cannot
+documented in @sec:skim-cost, the photon selection is baked in and cannot
 be varied downstream.
 
 Program freezing. `pi0.batch` snapshots the executable, its shared
@@ -191,7 +191,7 @@ caveat throughout.
   caption: [Statistics of the diagnostic run. $N^"DIS"$ is the inclusive
   normalisation of @eq:multiplicity (events read per target); the $pi^0$
   column is the same-event $gamma gamma$ pairs binned by Stage B, before
-  background subtraction --- an upper bound on the signal, not a $pi^0$
+  background subtraction, an upper bound on the signal, not a $pi^0$
   count. Under the $2 times 10^6$-event/file cap these total
   $approx 5.5 times 10^6$ @DIS events and $2.5 times 10^6$ $pi^0$ candidates.
   A full-luminosity run reuses the same machinery with the cap removed.],
@@ -199,9 +199,9 @@ caveat throughout.
 
 #wide-figure(
   "../figures/kinematics_pi0.pdf",
-  [Kinematic coverage of the reconstructed $pi^0$ sample --- the
+  [Kinematic coverage of the reconstructed $pi^0$ sample (the
   $M(gamma gamma)$ peak, the $z$ and $p_T^2$ spectra, and the Trento $phi_h$
-  (in degrees, $[-180, 180]$) --- unit-area normalised and overlaid for the
+  (in degrees, $[-180, 180]$)) unit-area normalised and overlaid for the
   four targets, reconstructed by `pi0.plots_kinematics` from the diagnostic
   slims. The four targets agree in shape, as the ratio construction assumes.
   The $phi_h$ modulation is the @CLAS12 azimuthal acceptance, not physics: it
@@ -232,9 +232,9 @@ scratch disk.
     the one its inputs were made with.
 
   + The binning is committed and hashed. `make_grid` writes
-    `config/binning/grid_{A,B}.json` with a provenance block --- the dataset,
+    `config/binning/grid_{A,B}.json` with a provenance block (the dataset,
     the targets, the event count and a hash of the edges
-    (`provenance_hash 2acf618294a6c3b0` for the grids used here) --- and that
+    (`provenance_hash 2acf618294a6c3b0` for the grids used here)) and that
     hash is stamped into every output binned on them. The edges are global,
     quotable and under version control.
 
